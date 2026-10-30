@@ -1,0 +1,313 @@
+<style>
+  /* Layout: ringkasan di atas, tabel 50 member sebagai inti, lalu tren/tim/top/jaringan */
+  #dash-root { --dash-gutter: var(--cds-pad-lg); }
+  .page { display: flex; flex-direction: column; gap: var(--cds-gap-xl); font-family: var(--font-anthropic-sans); }
+  .page h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title);
+    margin: 0; text-wrap: balance; }
+  .sub { color: var(--color-fg-muted); font-size: var(--cds-font-size-body); margin: 0; max-width: 60ch; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: var(--cds-gap-md); }
+  .tile { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius);
+    padding: var(--cds-pad-lg); display: flex; flex-direction: column; gap: var(--cds-gap-xs); }
+  .tile-num { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title);
+    font-variant-numeric: tabular-nums; }
+  .tile-lab { color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+  .card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius);
+    padding: var(--cds-pad-lg); display: flex; flex-direction: column; gap: var(--cds-gap-sm); min-width: 0; }
+  .card h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; }
+  .card .note { color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); margin: 0; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: var(--cds-gap-md); }
+  .tbl-wrap { overflow: auto; max-height: 30rem; }
+  table { border-collapse: collapse; width: 100%; font-size: var(--cds-font-size-caption);
+    font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 0.35rem 0.5rem; white-space: nowrap; border-bottom: 1px solid var(--color-border-line); }
+  th:first-child, td:first-child, th.txt, td.txt { text-align: left; }
+  thead th { position: sticky; top: 0; background: var(--color-panel); cursor: pointer; user-select: none;
+    color: var(--color-fg-muted); font-weight: var(--cds-font-weight-medium); }
+  thead th[aria-sort="ascending"]::after { content: " ▲"; }
+  thead th[aria-sort="descending"]::after { content: " ▼"; }
+  tbody tr { cursor: pointer; }
+  tbody tr.sel { background: color-mix(in srgb, var(--color-fg) 8%, transparent); }
+  .bar-cell { position: relative; }
+  .bar-cell .bar { position: absolute; left: 0; top: 50%; transform: translateY(-50%); height: 1.1rem;
+    background: color-mix(in srgb, var(--cds-chart-1, #6b8afd) 28%, transparent); border-radius: 3px; z-index: 0; }
+  .bar-cell span { position: relative; z-index: 1; }
+  .pill { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 999px; font-size: 0.72em;
+    background: color-mix(in srgb, var(--color-fg) 9%, transparent); color: var(--color-fg-muted); }
+  input.search { font: inherit; padding: 0.3rem 0.55rem; border: 1px solid var(--color-border-line);
+    border-radius: var(--cds-radius); background: var(--color-bg); color: var(--color-fg); max-width: 14rem; }
+  .chart-box { width: 100%; min-height: 240px; }
+  .dash-skeleton { display: inline-block; min-width: 2.5rem; border-radius: 4px;
+    background: color-mix(in srgb, var(--color-fg) 12%, transparent); color: transparent !important; }
+  [data-dash-source-state="empty"] { color: transparent; }
+  .tip { position: absolute; pointer-events: none; background: var(--cds-surface-popover, var(--color-bg));
+    border: 1px solid var(--cds-border, var(--color-border-line)); border-radius: var(--cds-radius);
+    box-shadow: var(--cds-shadow-popover, 0 2px 8px rgba(0,0,0,.2)); padding: var(--cds-pad-xs) var(--cds-pad-sm);
+    font-size: var(--cds-font-size-caption); opacity: 0; transition: opacity .1s; z-index: 5; }
+  .rel { position: relative; }
+  .foot { color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+</style>
+
+<div class="page">
+  <header>
+    <h1 id="top">Metrik X member JKT48</h1>
+    <p class="sub" id="takeaway"><span class="dash-skeleton">memuat ringkasan…</span></p>
+  </header>
+
+  <section class="tiles" aria-label="Ringkasan">
+    <div class="tile"><span class="tile-num dash-skeleton" data-source="totals" data-field="n" data-row="0">—</span><span class="tile-lab">member aktif di X</span></div>
+    <div class="tile"><span class="tile-num dash-skeleton" data-source="totals" data-field="post_utama" data-row="0">—</span><span class="tile-lab">post utama (Original + Quote)</span></div>
+    <div class="tile"><span class="tile-num dash-skeleton" data-source="totals" data-field="views_jt" data-row="0">—</span><span class="tile-lab">juta views total</span></div>
+    <div class="tile"><span class="tile-num dash-skeleton" data-source="totals" data-field="med_of_med" data-row="0">—</span><span class="tile-lab">median views per post (antar-member)</span></div>
+  </section>
+
+  <section class="card" id="peringkat">
+    <h2>Peringkat member</h2>
+    <p class="note">Median & angka lain dari post utama ≥ 7 hari. Klik baris untuk lihat trennya. Angka format internasional (ribuan dengan koma).</p>
+    <input class="search" type="search" id="cari" placeholder="Cari member…" aria-label="Cari member">
+    <div class="tbl-wrap">
+      <table id="tbl-member" data-source="members" data-row-key="nama">
+        <thead><tr>
+          <th data-field="rank" data-type="num">#</th>
+          <th class="txt" data-field="nama">Member</th>
+          <th class="txt" data-field="tim">Tim</th>
+          <th data-field="followers" data-type="num">Follower</th>
+          <th data-field="per_week" data-type="num">Post/mgg</th>
+          <th data-field="med_views" data-type="num">Median views</th>
+          <th data-field="med_likes" data-type="num">Median like</th>
+          <th data-field="er" data-type="num">ER %</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="grid2">
+    <section class="card" id="tren">
+      <h2 id="tren-judul">Tren median views — <span id="tren-nama">—</span></h2>
+      <p class="note">Median views post utama per bulan. Bulan pertama & terakhir tidak penuh.</p>
+      <div class="chart-box rel" id="tren-chart" data-source="monthly"></div>
+    </section>
+    <section class="card" id="tim">
+      <h2>Perbandingan per tim</h2>
+      <p class="note">Median dari median-views tiap member di tim itu.</p>
+      <div class="chart-box rel" id="tim-chart" data-source="team"></div>
+    </section>
+  </div>
+
+  <section class="card" id="top">
+    <h2>Post utama paling banyak dilihat</h2>
+    <p class="note">30 post teratas se-50 member, menurut views (saat diambil).</p>
+    <div class="tbl-wrap">
+      <table id="tbl-top" data-source="top_posts" data-row-key="rank">
+        <thead><tr>
+          <th data-field="rank" data-type="num">#</th>
+          <th class="txt" data-field="nama">Member</th>
+          <th class="txt" data-field="date">Tanggal</th>
+          <th data-field="views" data-type="num">Views</th>
+          <th data-field="likes" data-type="num">Like</th>
+          <th class="txt" data-field="media">Media</th>
+          <th class="txt" data-field="txt">Teks</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="jaringan">
+    <h2>Interaksi antar member</h2>
+    <p class="note">Pasangan reply terbanyak antar member aktif (bukan ke fans).</p>
+    <div class="tbl-wrap" style="max-height:22rem">
+      <table id="tbl-net" data-source="network" data-row-key="dari,ke">
+        <thead><tr>
+          <th class="txt" data-field="dari">Dari</th>
+          <th class="txt" data-field="ke">Membalas</th>
+          <th data-field="jumlah" data-type="num">Jumlah reply</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <p class="foot" id="foot">—</p>
+</div>
+
+<script>
+  // angka format internasional (koma ribuan, titik desimal) supaya cocok dengan nilai dataset
+  const fInt = d3.format(",");
+  const f1 = (x) => d3.format(",.1f")(x);
+  const enc = encodeURIComponent;
+  const state = { sel: null, sortCol: "rank", sortDir: 1, q: "" };
+  // Tiles dari kalkulasi atas dataset members (readers bisa cek rumusnya)
+  dash.calc("totals", {
+    title: "Ringkasan 50 member",
+    description: "Jumlah member, total post utama, total juta views, dan median dari median-views antar member. Dari members.",
+    inputs: ["members"],
+    fn: (members) => {
+      const n = members.length;
+      const post = d3.sum(members, (m) => m.post_utama);
+      const views = d3.sum(members, (m) => m.total_views);
+      const med = d3.median(members, (m) => m.med_views);
+      return [{ n, post_utama: post, views_jt: Math.round(views / 1e6), med_of_med: Math.round(med) }];
+    },
+  });
+  // Tabel member
+  const tbl = document.getElementById("tbl-member");
+  const tbody = tbl.querySelector("tbody");
+  const cari = document.getElementById("cari");
+  cari.addEventListener("input", () => { state.q = cari.value.toLowerCase(); renderMembers(); });
+  tbl.querySelectorAll("thead th").forEach((th) => th.addEventListener("click", () => {
+    const col = th.dataset.field;
+    if (state.sortCol === col) state.sortDir *= -1;
+    else { state.sortCol = col; state.sortDir = th.dataset.type === "num" ? -1 : 1; }
+    renderMembers();
+  }));
+  tbody.addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-key]");
+    if (tr) { state.sel = decodeURIComponent(tr.dataset.key); drawTren(); markSel(); }
+  });
+  function markSel() {
+    tbody.querySelectorAll("tr").forEach((tr) =>
+      tr.classList.toggle("sel", decodeURIComponent(tr.dataset.key || "") === state.sel));
+  }
+  function renderMembers() {
+    const g = dash.data("members");
+    tbl.querySelectorAll("thead th").forEach((th) =>
+      th.setAttribute("aria-sort", th.dataset.field === state.sortCol ? (state.sortDir > 0 ? "ascending" : "descending") : "none"));
+    if (g.status !== "ok") { tbody.innerHTML = ""; return; }
+    let rows = g.data.slice();
+    if (state.q) rows = rows.filter((r) => r.nama.toLowerCase().includes(state.q) || r.tim.toLowerCase().includes(state.q));
+    const c = state.sortCol;
+    rows.sort((a, b) => (typeof a[c] === "number" ? a[c] - b[c] : String(a[c]).localeCompare(String(b[c]))) * state.sortDir);
+    const maxV = d3.max(g.data, (r) => r.med_views) || 1;
+    tbody.replaceChildren(...rows.map((r) => {
+      const tr = document.createElement("tr");
+      tr.dataset.key = enc(r.nama);
+      const cell = (txt, cls) => { const td = document.createElement("td"); if (cls) td.className = cls; td.textContent = txt; return td; };
+      tr.append(cell(fInt(r.rank)));
+      const nm = cell(r.nama, "txt"); tr.append(nm);
+      const tm = cell("", "txt"); tm.innerHTML = '<span class="pill"></span>'; tm.querySelector("span").textContent = r.tim; tr.append(tm);
+      tr.append(cell(fInt(r.followers)));
+      tr.append(cell(f1(r.per_week)));
+      const mv = document.createElement("td"); mv.className = "bar-cell";
+      const bar = document.createElement("div"); bar.className = "bar"; bar.style.width = (100 * r.med_views / maxV) + "%";
+      const sp = document.createElement("span"); sp.textContent = fInt(r.med_views);
+      mv.append(bar, sp); tr.append(mv);
+      tr.append(cell(fInt(r.med_likes)));
+      tr.append(cell(f1(r.er)));
+      return tr;
+    }));
+    if (state.sel === null && rows.length) { state.sel = dash.data("members").data[0].nama; }
+    markSel();
+  }
+  // Grafik tren median views bulanan untuk member terpilih
+  const trenBox = document.getElementById("tren-chart");
+  const trenNama = document.getElementById("tren-nama");
+  let tip;
+  function drawTren() {
+    const g = dash.data("monthly");
+    trenBox.querySelectorAll("svg,.tip").forEach((e) => e.remove());
+    if (g.status !== "ok" || !state.sel) return;
+    trenNama.textContent = state.sel;
+    const data = g.data.filter((r) => r.nama === state.sel)
+      .map((r) => ({ d: new Date(r.month + "-01"), v: r.med_views, n: r.n, month: r.month }))
+      .sort((a, b) => a.d - b.d);
+    if (!data.length) return;
+    const W = trenBox.clientWidth || 360, H = 240, m = { t: 14, r: 46, b: 28, l: 12 };
+    const x = d3.scaleUtc([data[0].d, data[data.length - 1].d], [m.l, W - m.r]);
+    const y = d3.scaleLinear([0, d3.max(data, (p) => p.v) * 1.1 || 1], [H - m.b, m.t]);
+    const svg = d3.select(trenBox).append("svg").attr("width", "100%").attr("viewBox", `0 0 ${W} ${H}`);
+    y.ticks(4).forEach((t) => {
+      svg.append("line").attr("x1", m.l).attr("x2", W - m.r).attr("y1", y(t)).attr("y2", y(t))
+        .attr("stroke", "var(--cds-chart-grid)").attr("stroke-width", 1);
+      svg.append("text").attr("x", W - m.r + 4).attr("y", y(t)).attr("dy", "0.32em")
+        .attr("fill", "var(--color-fg-muted)").attr("font-size", 10).text(d3.format("~s")(t));
+    });
+    const xt = x.ticks(Math.min(6, data.length));
+    svg.selectAll("text.xt").data(xt).join("text").attr("class", "xt").attr("x", (t) => x(t))
+      .attr("y", H - 10).attr("text-anchor", "middle").attr("fill", "var(--color-fg-muted)")
+      .attr("font-size", 10).text(d3.utcFormat("%b '%y"));
+    const line = d3.line().x((p) => x(p.d)).y((p) => y(p.v)).curve(d3.curveMonotoneX);
+    svg.append("path").datum(data).attr("fill", "none").attr("stroke", dash.colors[0])
+      .attr("stroke-width", 2).attr("stroke-linejoin", "round").attr("stroke-linecap", "round").attr("d", line);
+    const last = data[data.length - 1];
+    svg.append("text").attr("x", x(last.d)).attr("y", y(last.v) - 8).attr("text-anchor", "end")
+      .attr("fill", "var(--color-fg)").attr("font-size", 11).attr("font-weight", 600).text(fInt(last.v));
+    tip = d3.select(trenBox).append("div").attr("class", "tip");
+    svg.selectAll("circle").data(data).join("circle").attr("cx", (p) => x(p.d)).attr("cy", (p) => y(p.v))
+      .attr("r", 3.5).attr("fill", dash.colors[0]).style("cursor", "pointer")
+      .on("pointerenter pointermove", (ev, p) => {
+        tip.style("opacity", 1).style("left", Math.min(x(p.d) + 8, W - 120) + "px").style("top", (y(p.v) - 10) + "px")
+          .html(`<b>${d3.utcFormat("%b %Y")(p.d)}</b><br>${fInt(p.v)} views · ${p.n} post`);
+      }).on("pointerleave", () => tip.style("opacity", 0));
+  }
+  // Bar median views per tim
+  const timBox = document.getElementById("tim-chart");
+  function drawTim() {
+    const g = dash.data("team");
+    timBox.querySelectorAll("svg,.tip").forEach((e) => e.remove());
+    if (g.status !== "ok") return;
+    const data = g.data.slice();
+    const W = timBox.clientWidth || 360, H = 240, m = { t: 14, r: 56, b: 28, l: 70 };
+    const y = d3.scaleBand(data.map((d) => d.tim), [m.t, H - m.b]).padding(0.28);
+    const x = d3.scaleLinear([0, d3.max(data, (d) => d.med_views) * 1.1 || 1], [m.l, W - m.r]);
+    const svg = d3.select(timBox).append("svg").attr("width", "100%").attr("viewBox", `0 0 ${W} ${H}`);
+    svg.selectAll("rect").data(data).join("rect").attr("x", m.l).attr("y", (d) => y(d.tim))
+      .attr("width", (d) => x(d.med_views) - m.l).attr("height", y.bandwidth()).attr("rx", 4)
+      .attr("fill", dash.colors[0]);
+    svg.selectAll("text.lab").data(data).join("text").attr("class", "lab").attr("x", m.l - 8)
+      .attr("y", (d) => y(d.tim) + y.bandwidth() / 2).attr("dy", "0.32em").attr("text-anchor", "end")
+      .attr("fill", "var(--color-fg)").attr("font-size", 11).text((d) => d.tim);
+    svg.selectAll("text.val").data(data).join("text").attr("class", "val").attr("x", (d) => x(d.med_views) + 4)
+      .attr("y", (d) => y(d.tim) + y.bandwidth() / 2).attr("dy", "0.32em")
+      .attr("fill", "var(--color-fg-muted)").attr("font-size", 10).text((d) => fInt(d.med_views));
+  }
+  // Tabel sederhana dari dataset (top posts, network)
+  function fillTable(id, cols) {
+    const g = dash.data(id);
+    const tb = document.querySelector(`#${id === "top_posts" ? "tbl-top" : "tbl-net"} tbody`);
+    if (g.status !== "ok") { tb.innerHTML = ""; return; }
+    tb.replaceChildren(...g.data.map((r) => {
+      const tr = document.createElement("tr");
+      if (id === "network") tr.dataset.key = enc(r.dari) + "," + enc(r.ke);
+      else tr.dataset.key = enc(String(r.rank));
+      cols.forEach((c) => {
+        const td = document.createElement("td");
+        if (c.txt) td.className = "txt";
+        td.textContent = c.fmt ? c.fmt(r[c.k]) : r[c.k];
+        tr.append(td);
+      });
+      return tr;
+    }));
+  }
+  dash.onData(() => {
+    const mg = dash.data("members"), tg = dash.data("totals");
+    document.querySelectorAll("[data-source='totals']").forEach((el) => {
+      el.classList.toggle("dash-skeleton", tg.status !== "ok");
+    });
+    if (tg.status === "ok") {
+      const t = tg.data[0];
+      document.querySelector("[data-field='n']").textContent = fInt(t.n);
+      document.querySelector("[data-field='post_utama']").textContent = fInt(t.post_utama);
+      document.querySelector("[data-field='views_jt']").textContent = fInt(t.views_jt);
+      document.querySelector("[data-field='med_of_med']").textContent = fInt(t.med_of_med);
+    }
+    const tk = document.getElementById("takeaway");
+    if (mg.status === "ok" && tg.status === "ok") {
+      const top3 = mg.data.slice().sort((a, b) => a.rank - b.rank).slice(0, 3).map((m) => m.nama).join(", ");
+      tk.classList.remove("dash-skeleton");
+      tk.textContent = `${fInt(tg.data[0].n)} member aktif, ${fInt(tg.data[0].post_utama)} post utama selama setahun. `
+        + `Views per post tertinggi: ${top3}. Angka dari post utama (Original + Quote).`;
+    }
+    renderMembers();
+    drawTren();
+    drawTim();
+    fillTable("top_posts", [
+      { k: "rank", fmt: fInt }, { k: "nama", txt: 1 }, { k: "date", txt: 1 },
+      { k: "views", fmt: fInt }, { k: "likes", fmt: fInt }, { k: "media", txt: 1 }, { k: "txt", txt: 1 },
+    ]);
+    fillTable("network", [{ k: "dari", txt: 1 }, { k: "ke", txt: 1 }, { k: "jumlah", fmt: fInt }]);
+    const fb = document.getElementById("foot");
+    fb.textContent = "Data: timeline X tiap member, 1 tahun. Repost tidak dihitung. "
+      + "Like/views adalah angka saat diambil, bukan saat diposting.";
+  });
+</script>

@@ -1,0 +1,22 @@
+data/
+*.xlsx
+~$*
+__pycache__/
+.env
+.claude/
+.env.job.*
+!.env.job.example
+.DS_Store
+# data mentah & hasil ekspor: berisi id tweet asli fans, salt hash, dataset besar — jangan di-commit
+data_vps/
+exports/
+datasets/
+samples/
+analysis/*.csv
+dash_ds/
+dashboard_data.json
+*.csv.gz
+*.jsonl
+.hash_salt
+members copy.csv
+report/*.html

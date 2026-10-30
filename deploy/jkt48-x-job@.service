@@ -1,0 +1,27 @@
+[Unit]
+Description=JKT48 X job worker (%i) — satu instance per akun X
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/jkt48-x-metrics
+# tiap akun punya file env sendiri: .env.job.<nama>, mis. .env.job.acc2 -> jkt48-x-job@acc2
+EnvironmentFile=/home/ubuntu/jkt48-x-metrics/.env.job.%i
+Environment=DATA_DIR=/home/ubuntu/jkt48-x-metrics/data
+Environment=REQUIRE_PROXY=1
+# nama worker di antrean bersama = nama instance (mis. akun1, akun2)
+Environment=WORKER_ID=%i
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/jkt48-x-metrics/.venv/bin/python job_worker.py
+Restart=on-failure
+RestartSec=60
+# server ini juga menjalankan bot WAR Chekicha: prioritas rendah
+Nice=10
+CPUWeight=20
+IOSchedulingClass=idle
+MemoryMax=700M
+
+[Install]
+WantedBy=multi-user.target

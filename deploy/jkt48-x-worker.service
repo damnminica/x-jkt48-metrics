@@ -1,0 +1,25 @@
+[Unit]
+Description=JKT48 X metrics worker (tarik 1 tahun tweet member, kirim Excel ke Telegram)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/jkt48-x-metrics
+EnvironmentFile=/home/ubuntu/jkt48-x-metrics/.env
+Environment=DATA_DIR=/home/ubuntu/jkt48-x-metrics/data
+# IP VPS = datacenter: worker diam kalau TWITTER_PROXY kosong
+Environment=REQUIRE_PROXY=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/jkt48-x-metrics/.venv/bin/python worker.py
+Restart=on-failure
+RestartSec=60
+# server ini juga menjalankan bot WAR Chekicha: beri prioritas rendah
+Nice=10
+CPUWeight=20
+IOSchedulingClass=idle
+MemoryMax=600M
+
+[Install]
+WantedBy=multi-user.target

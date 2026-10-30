@@ -1,0 +1,19 @@
+[Unit]
+Description=JKT48 X uji batas mention/hashtag (%i) — sekali jalan, tidak di-restart
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/jkt48-x-metrics
+EnvironmentFile=/home/ubuntu/jkt48-x-metrics/.env.job.%i
+Environment=DATA_DIR=/home/ubuntu/jkt48-x-metrics/data
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/jkt48-x-metrics/.venv/bin/python stress_test.py
+# sekali jalan: kalau berhenti/gagal, laporannya dikirim ke Telegram dan tidak diulang otomatis
+Restart=no
+Nice=10
+CPUWeight=20
+IOSchedulingClass=idle
+MemoryMax=700M

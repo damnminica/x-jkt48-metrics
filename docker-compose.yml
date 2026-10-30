@@ -1,0 +1,15 @@
+services:
+  x-worker:
+    build: .
+    container_name: jkt48-x-worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      REQUIRE_PROXY: "1"
+    volumes:
+      - ./data:/data
+    mem_limit: 600m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

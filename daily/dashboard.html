@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JKT48 — Dashboard Metrik X</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0e1117; --panel:#161b24; --line:#262d3a; --fg:#e8ecf3; --mut:#9aa6b8;
+    --accent:#6b8afd; --accent2:#f0b429; --ok:#43c08a; --bad:#f06c6c;
+    --serif:"Iowan Old Style",Georgia,serif; --sans:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  @media (prefers-color-scheme:light){:root:not([data-theme=dark]){
+    --bg:#f6f7f9; --panel:#fff; --line:#e4e8ef; --fg:#1a1f29; --mut:#5c6678; --accent:#3f5fd6;}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:14px;line-height:1.5}
+  .wrap{max-width:1180px;margin:0 auto;padding:24px max(16px,env(safe-area-inset-left)) 60px}
+  h1{font-family:var(--serif);font-weight:400;font-size:26px;margin:0}
+  .sub{color:var(--mut);margin:.25rem 0 0}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:22px 0}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .tile .n{font-family:var(--serif);font-size:26px;font-variant-numeric:tabular-nums}
+  .tile .l{color:var(--mut);font-size:12px;margin-top:4px}
+  .tile .d{font-size:12px;margin-top:6px;font-variant-numeric:tabular-nums}
+  .up{color:var(--ok)} .down{color:var(--bad)}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);
+     font-weight:600;margin:34px 0 12px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  .grid{display:grid;gap:16px}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
+  .card h3{margin:0 0 2px;font-size:15px;font-weight:600}
+  .card .note{color:var(--mut);font-size:12px;margin:0 0 10px}
+  .chart-box{position:relative;height:280px}
+  table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+  th,td{padding:5px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+  th:first-child,td:first-child,th.l,td.l{text-align:left}
+  td.l.wrap,th.l.wrap{white-space:normal}
+  th{position:sticky;top:0;background:var(--panel);color:var(--mut);font-weight:600;cursor:pointer;user-select:none}
+  .scroll{max-height:440px;overflow:auto}
+  .bar{position:relative}.bar i{position:absolute;left:0;top:50%;transform:translateY(-50%);height:16px;
+     background:color-mix(in srgb,var(--accent) 30%,transparent);border-radius:3px}
+  .bar span{position:relative}
+  .pill{background:color-mix(in srgb,var(--fg) 10%,transparent);color:var(--mut);border-radius:999px;padding:1px 8px;font-size:11px}
+  tr.clk{cursor:pointer} tr.clk:hover td{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+  .heat{display:grid;grid-template-columns:auto repeat(24,1fr);gap:2px;font-size:10px}
+  .heat .cell{aspect-ratio:1;border-radius:2px;min-width:7px}
+  .heat .lab{color:var(--mut);display:flex;align-items:center}
+  .foot{color:var(--mut);font-size:12px;margin-top:30px}
+  .loading{color:var(--mut);padding:40px;text-align:center}
+  /* tabs */
+  .tabs{display:flex;gap:2px;flex-wrap:wrap;margin:18px 0 0;border-bottom:1px solid var(--line)}
+  .tabs button{font:inherit;font-weight:600;color:var(--mut);background:none;border:none;
+     border-bottom:2px solid transparent;padding:9px 14px;cursor:pointer}
+  .tabs button.on{color:var(--fg);border-bottom-color:var(--accent)}
+  .panel{display:none} .panel.on{display:block}
+  /* controls */
+  .controls{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin:16px 0}
+  .ctl{display:flex;flex-direction:column;font-size:11px;color:var(--mut);gap:3px}
+  select,input.search{font:inherit;padding:6px 9px;border:1px solid var(--line);border-radius:8px;
+     background:var(--bg);color:var(--fg)}
+  input.search{max-width:100%}
+  /* multi-select */
+  .multi{border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:10px;max-width:360px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:6px}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:color-mix(in srgb,var(--accent) 22%,transparent);
+     border-radius:999px;padding:3px 7px 3px 10px;font-size:12px}
+  .chip x{cursor:pointer;font-weight:700;color:var(--mut)}
+  .mlist{max-height:200px;overflow:auto;display:flex;flex-direction:column;gap:1px;margin-top:6px}
+  .mlist label{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;cursor:pointer;font-size:13px}
+  .mlist label:hover{background:color-mix(in srgb,var(--fg) 6%,transparent)}
+  .mlist label.dis{opacity:.4;cursor:not-allowed}
+  .mlist input{margin:0}
+  .mini{color:var(--mut);font-size:11px;margin-top:6px}
+  .mini-btn{font:inherit;font-size:12px;padding:5px 9px;border:1px solid var(--line);border-radius:7px;
+     background:var(--bg);color:var(--mut);cursor:pointer;white-space:nowrap}
+  .mini-btn:hover{color:var(--fg);border-color:var(--accent)}
+  /* modal */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-start;
+     justify-content:center;padding:26px 14px;overflow:auto;z-index:50}
+  .modal.on{display:flex}
+  .modal-card{background:var(--bg);border:1px solid var(--line);border-radius:16px;max-width:880px;width:100%;padding:22px}
+  .modal-card .close{float:right;cursor:pointer;color:var(--mut);font-size:24px;line-height:.8}
+  .statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;margin:14px 0}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px}
+  .stat .n{font-family:var(--serif);font-size:19px;font-variant-numeric:tabular-nums}
+  .stat .l{color:var(--mut);font-size:11px;margin-top:2px}
+  a.link{color:var(--accent);text-decoration:none} a.link:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="loading">Memuat data…</div></div>
+<div class="modal" id="modal"><div class="modal-card" id="modalCard"></div></div>
+<script>
+const F=new Intl.NumberFormat("id-ID");
+const fn=x=>F.format(Math.round(x||0));
+const sign=x=>(x>0?"+":"")+F.format(x);
+const C=getComputedStyle(document.documentElement);
+const col=n=>C.getPropertyValue(n).trim();
+const PALETTE=[col("--accent"),col("--accent2"),col("--ok"),"#c58af0","#5fb0d6","#e88fb0"];
+const HARI=["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
+const esc=s=>String(s==null?"":s).replace(/[<>&"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
+let D=null, MBY={}, ALLM=[], ALLW=[], ALLY=[];
+const CH={};
+function mk(id,cfg){if(CH[id]){try{CH[id].destroy()}catch(e){}}const el=document.getElementById(id);if(!el)return;CH[id]=new Chart(el,cfg);return CH[id];}
+function destroyAll(){Object.keys(CH).forEach(k=>{try{CH[k].destroy()}catch(e){}delete CH[k];});}
+function teamColor(t){return {Dream:PALETTE[0],Love:PALETTE[5],Passion:PALETTE[1],Trainee:PALETTE[4]}[t]||PALETTE[2];}
+function base(){return {responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:col("--mut"),boxWidth:12}}},
+  scales:{x:{ticks:{color:col("--mut")},grid:{color:col("--line")}},y:{ticks:{color:col("--mut")},grid:{color:col("--line")}}}};}
+
+fetch("data.json").then(r=>r.json()).then(d=>{D=d;init();})
+  .catch(e=>{document.getElementById("app").innerHTML='<div class="loading">Gagal memuat data: '+e+'</div>';});
+
+function init(){
+  D.members.forEach(m=>MBY[m.handle]=m);
+  ALLM=[...new Set(D.members.flatMap(m=>m.monthly.map(x=>x.m)))].sort();
+  ALLW=[...new Set(D.members.flatMap(m=>m.weekly.map(x=>x.w)))].sort();
+  ALLY=[...new Set(ALLM.map(m=>m.slice(0,4)))].sort();
+  render();
+}
+
+function tile(n,l,extra){return `<div class="tile"><div class="n">${n}</div><div class="l">${l}</div>${extra||""}</div>`;}
+
+const TABS=[["ringkasan","Ringkasan"],["banding","Perbandingan"],["tren","Tren"],["top","Top Post"],["baru","Post Terbaru"]];
+let TAB="ringkasan";
+function render(){
+  const k=D.kpi;
+  const folDelta=D.follower_trend.length?D.follower_trend.at(-1).delta:null;
+  document.getElementById("app").innerHTML=`
+    <header>
+      <h1>JKT48 — Dashboard Metrik X (Twitter)</h1>
+      <p class="sub">Sejak ${D.cutoff} · ${k.n_members} member · diperbarui ${D.generated} · sumber: ${D.source}</p>
+    </header>
+    <div class="tiles">
+      ${tile(fn(k.total_views),"Total views (post utama)")}
+      ${tile(fn(k.total_post),"Total post utama")}
+      ${tile(fn(k.total_followers),"Total follower", folDelta!=null?`<div class="d ${folDelta>=0?'up':'down'}">${sign(folDelta)} kemarin</div>`:"")}
+      ${tile(k.avg_er.toFixed(2)+"%","Rata-rata ER")}
+      ${tile(fn(k.n_members),"Jumlah member")}
+    </div>
+    <nav class="tabs">${TABS.map(([id,l])=>`<button data-tab="${id}" class="${id===TAB?'on':''}">${l}</button>`).join("")}</nav>
+    <section class="panel" id="p-ringkasan"></section>
+    <section class="panel" id="p-banding"></section>
+    <section class="panel" id="p-tren"></section>
+    <section class="panel" id="p-top"></section>
+    <section class="panel" id="p-baru"></section>
+    <p class="foot">Data: timeline X tiap member, jendela 1 tahun berjalan. Post utama = Original + Quote; repost tak dihitung.
+      Like/views = angka saat diambil. Update otomatis tiap 00:00 WIB. Top post diambil dari ~50 post tertinggi tiap member
+      (untuk query lengkap, pakai tab <b>Data</b> di Google Sheets).</p>`;
+  document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+  showTab(TAB);
+  document.getElementById("modal").onclick=e=>{if(e.target.id==="modal")closeModal();};
+}
+function showTab(t){
+  TAB=t; destroyAll();
+  document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===t));
+  document.querySelectorAll(".panel").forEach(p=>p.classList.toggle("on",p.id==="p-"+t));
+  ({ringkasan:buildRingkasan,banding:buildBanding,tren:buildTren,top:buildTop,baru:buildBaru}[t])();
+}
+
+/* ---------- multi-select member picker ---------- */
+function picker(host, state, onChange){
+  // state: {sel:Set, gen:"", tim:"", q:"", max:N}  (max 0/undefined = tanpa batas)
+  const cap=state.max||0;
+  function draw(){
+    let list=D.members.filter(m=>(!state.gen||m.gen===state.gen)&&(!state.tim||m.tim===state.tim)
+        &&(!state.q||m.nama.toLowerCase().includes(state.q.toLowerCase())));
+    const full=cap>0&&state.sel.size>=cap;
+    const chips=[...state.sel].map(h=>`<span class="chip"><b>${esc(MBY[h].nama)}</b><x data-h="${h}">✕</x></span>`).join("")
+      ||`<span class="mini">Belum ada member dipilih${cap?` (maks ${cap})`:""}.</span>`;
+    host.innerHTML=`
+      <div class="chips">${chips}</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+        <input class="search" placeholder="Cari member…" value="${esc(state.q)}" style="flex:1;min-width:0">
+        <button class="mini-btn" data-act="all">Pilih semua${(state.gen||state.tim||state.q)?" (terfilter)":""}</button>
+        <button class="mini-btn" data-act="clear">Kosongkan</button></div>
+      <div class="mini">${state.sel.size} dipilih${cap?` / maks ${cap}`:""}</div>
+      <div class="mlist">${list.map(m=>{const on=state.sel.has(m.handle);
+        return `<label class="${!on&&full?'dis':''}"><input type="checkbox" data-h="${m.handle}" ${on?'checked':''} ${!on&&full?'disabled':''}>
+        <span>${esc(m.nama)} <span class="pill">${esc(m.tim)}</span> <span class="pill">gen ${esc(m.gen||'?')}</span></span></label>`;}).join("")}</div>`;
+    host.querySelector("input.search").oninput=e=>{state.q=e.target.value;const c=e.target.selectionStart;draw();
+      const s=host.querySelector("input.search");s.focus();s.setSelectionRange(c,c);};
+    host.querySelectorAll('.mlist input').forEach(cb=>cb.onchange=()=>{
+      const h=cb.dataset.h; if(cb.checked){if(!cap||state.sel.size<cap)state.sel.add(h);}else state.sel.delete(h);
+      draw(); onChange();});
+    host.querySelectorAll('.chip x').forEach(x=>x.onclick=()=>{state.sel.delete(x.dataset.h);draw();onChange();});
+    host.querySelectorAll('.mini-btn').forEach(b=>b.onclick=()=>{
+      if(b.dataset.act==="clear")state.sel.clear();
+      else list.forEach(m=>{if(!cap||state.sel.size<cap)state.sel.add(m.handle);});
+      draw();onChange();});
+  }
+  draw();
+}
+function periodMonths(mode){ // mode: "all"|"12"|"6"|"3"|"1"
+  if(mode==="all")return new Set(ALLM);
+  return new Set(ALLM.slice(-parseInt(mode)));
+}
+
+/* ---------- TAB: Ringkasan ---------- */
+let sortC="med_views", sortD=-1;
+function buildRingkasan(){
+  const p=document.getElementById("p-ringkasan");
+  p.innerHTML=`
+    <h2>1 · Statistik umum</h2>
+    <div class="grid g2">
+      <div class="card"><h3>Statistik per member</h3><p class="note">Diurutkan median views per post utama (klik header untuk urutkan kolom lain). Klik baris untuk detail.</p>
+        <input class="search" id="cari" placeholder="Cari member / tim…" style="margin-bottom:8px;width:220px">
+        <div class="scroll"><table id="tbl"><thead><tr>
+          <th class="l">Member</th><th class="l">Tim</th><th>Gen</th><th data-c="followers">Follower</th>
+          <th data-c="med_views">Med views</th><th data-c="er">ER%</th><th data-c="fol_delta">Δ fol</th>
+        </tr></thead><tbody></tbody></table></div></div>
+      <div class="card"><h3>Median views per tim</h3><p class="note">Median dari median-views tiap member.</p>
+        <div class="chart-box"><canvas id="cTeam"></canvas></div></div>
+    </div>
+    <h2>2 · Jam posting &amp; efisiensi</h2>
+    <div class="grid g2">
+      <div class="card"><h3>Jam posting (WIB)</h3><p class="note">Heatmap hari × jam — jumlah post utama. Makin terang = makin ramai.</p>
+        <div id="heat" class="heat"></div></div>
+      <div class="card"><h3>Follower vs median views</h3><p class="note">Di atas garis = engagement melampaui ukuran follower. Warna = tim.</p>
+        <div class="chart-box"><canvas id="cScatter"></canvas></div></div>
+    </div>
+    <h2>3 · Interaksi, mention &amp; komposisi</h2>
+    <div class="grid g2">
+      <div class="card"><h3>Reply antar member</h3><p class="note">Pasangan reply terbanyak (bukan ke fans).</p>
+        <div class="scroll" style="max-height:280px"><table><thead><tr><th class="l">Dari</th><th class="l">Membalas</th><th>Reply</th></tr></thead>
+        <tbody>${D.network.map(n=>`<tr><td class="l">${esc(n.dari)}</td><td class="l">${esc(n.ke)}</td><td>${fn(n.n)}</td></tr>`).join("")}</tbody></table></div></div>
+      <div class="card"><h3>Mention diterima per member</h3><p class="note">Member paling sering disebut fans (mention mandiri, tanpa reply/RT). Klik untuk detail.</p>
+        <div id="menBoard"></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card"><h3>Jenis media</h3><p class="note">Seluruh member, 1 tahun.</p>
+        <div class="chart-box"><canvas id="cComp"></canvas></div></div>
+      <div class="card"><h3>Post paling banyak dilihat</h3><p class="note">10 teratas se-50 member. Klik untuk detail.</p>
+        <div class="scroll" style="max-height:280px"><table><thead><tr><th class="l">Member</th><th>Views</th><th class="l">Media</th></tr></thead>
+        <tbody id="topMini"></tbody></table></div></div>
+    </div>`;
+  buildTable(); drawTeam(); drawScatter(); drawComp(); drawMentionBoard(); drawHeat();
+  document.getElementById("cari").addEventListener("input",buildTable);
+  const tm=D.top_pool.slice(0,10).map(pp=>`<tr class="clk" data-h="${pp.h}"><td class="l">${esc((MBY[pp.h]||{}).nama||pp.h)}</td><td>${fn(pp.v)}</td><td class="l">${esc(pp.media)}</td></tr>`).join("");
+  document.getElementById("topMini").innerHTML=tm;
+  document.querySelectorAll("#topMini tr").forEach(tr=>tr.onclick=()=>openDetail(tr.dataset.h));
+}
+/* ---------- TAB: Post Terbaru (post < 7 hari, semua metrik, sortable) ---------- */
+const YCOL=[
+  {k:"nama",l:"Member",tx:1,g:p=>(MBY[p.h]||{}).nama||p.h},
+  {k:"t",l:"Tanggal",tx:1,g:p=>p.t},
+  {k:"v",l:"Views",g:p=>p.v},
+  {k:"dv",l:"Δ views",g:p=>p.dv},
+  {k:"l",l:"Like",g:p=>p.l},
+  {k:"rt",l:"RT",g:p=>p.rt},
+  {k:"rp",l:"Reply",g:p=>p.rp},
+  {k:"qt",l:"Quote",g:p=>p.qt},
+  {k:"bm",l:"Bookmark",g:p=>p.bm},
+];
+let yoSortK="t", yoSortD=-1, yoQ="";
+function dvCell(d){return d==null?'<span style="color:var(--mut)">–</span>':d>0?`<span class="up">▲ +${fn(d)}</span>`:d<0?`<span class="down">▼ ${fn(-d)}</span>`:'<span style="color:var(--mut)">0</span>';}
+function buildBaru(){
+  document.getElementById("p-baru").innerHTML=`
+    <p class="note" style="margin:14px 0">Post &lt; 7 hari dari semua member, semua metrik. Klik judul kolom untuk urutkan — tanggal (terbaru/terlama) & metrik (terbanyak/tersedikit). <b>Δ views</b> = perubahan sejak update kemarin.</p>
+    <input class="search" id="yoCari" placeholder="Cari member…" style="margin-bottom:10px;width:220px;max-width:100%">
+    <div class="card"><div class="scroll" style="max-height:620px"><table id="yoTbl"></table></div><p class="mini" id="yoCount"></p></div>`;
+  document.getElementById("yoCari").value=yoQ;
+  document.getElementById("yoCari").addEventListener("input",e=>{yoQ=e.target.value;drawBaru();});
+  drawBaru();
+}
+function drawBaru(){
+  const c=YCOL.find(x=>x.k===yoSortK)||YCOL[0];
+  let rows=(D.young_posts||[]).slice();
+  if(yoQ){const q=yoQ.toLowerCase();rows=rows.filter(p=>((MBY[p.h]||{}).nama||p.h).toLowerCase().includes(q));}
+  rows.sort((a,b)=>{let va=c.g(a),vb=c.g(b);
+    if(c.tx){va=(va||"").toLowerCase();vb=(vb||"").toLowerCase();return (va<vb?-1:va>vb?1:0)*yoSortD;}
+    return ((va==null?-Infinity:va)-(vb==null?-Infinity:vb))*yoSortD;});
+  const head=`<thead><tr>${YCOL.map(x=>`<th data-k="${x.k}" class="${x.tx?'l':''}">${x.l}${x.k===yoSortK?(yoSortD<0?" ↓":" ↑"):""}</th>`).join("")}<th class="l wrap">Teks</th><th class="l">Link</th></tr></thead>`;
+  const body=`<tbody>${rows.length?rows.map(p=>{const m=MBY[p.h]||{nama:p.h};
+    return `<tr><td class="l clk" data-h="${p.h}">${esc(m.nama)}</td><td class="l">${p.t}</td><td>${fn(p.v)}</td><td>${dvCell(p.dv)}</td><td>${fn(p.l)}</td><td>${fn(p.rt)}</td><td>${fn(p.rp)}</td><td>${fn(p.qt)}</td><td>${fn(p.bm)}</td><td class="l wrap" style="max-width:300px">${esc(p.txt)}</td><td class="l"><a class="link" href="https://x.com/${p.h}/status/${p.id}" target="_blank" rel="noopener">buka ↗</a></td></tr>`;}).join(""):`<tr><td class="l" colspan="${YCOL.length+2}">Belum ada post &lt; 7 hari (terisi dari update harian).</td></tr>`}</tbody>`;
+  const t=document.getElementById("yoTbl"); t.innerHTML=head+body;
+  t.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(yoSortK===k)yoSortD*=-1;else{yoSortK=k;yoSortD=-1;}drawBaru();});
+  t.querySelectorAll("td.clk").forEach(td=>td.onclick=()=>openDetail(td.dataset.h));
+  document.getElementById("yoCount").textContent=`${rows.length} post < 7 hari`;
+}
+function buildTable(){
+  const q=(document.getElementById("cari").value||"").toLowerCase();
+  let rows=D.members.filter(m=>m.nama.toLowerCase().includes(q)||m.tim.toLowerCase().includes(q)||("gen "+m.gen).includes(q));
+  rows.sort((a,b)=>((a[sortC]??-1)-(b[sortC]??-1))*sortD);
+  const max=Math.max(...D.members.map(m=>m.med_views));
+  document.querySelector("#tbl tbody").innerHTML=rows.map(m=>`
+    <tr class="clk" data-h="${m.handle}">
+      <td class="l">${esc(m.nama)}</td><td class="l"><span class="pill">${esc(m.tim)}</span></td>
+      <td>${esc(m.gen||"?")}</td><td>${fn(m.followers)}</td>
+      <td class="bar"><i style="width:${100*m.med_views/max}%"></i><span>${fn(m.med_views)}</span></td>
+      <td>${m.er.toFixed(2)}</td>
+      <td class="${m.fol_delta>0?'up':m.fol_delta<0?'down':''}">${m.fol_delta!=null?sign(m.fol_delta):'—'}</td></tr>`).join("");
+  document.querySelectorAll("#tbl tbody tr").forEach(tr=>tr.onclick=()=>openDetail(tr.dataset.h));
+  document.querySelectorAll("#tbl th[data-c]").forEach(th=>th.onclick=()=>{
+    const c=th.dataset.c; if(sortC===c)sortD*=-1; else{sortC=c;sortD=-1;} buildTable();});
+}
+function drawTeam(){mk("cTeam",{type:"bar",data:{labels:D.team.map(t=>t.tim),
+  datasets:[{data:D.team.map(t=>t.med_views),backgroundColor:D.team.map(t=>teamColor(t.tim)),borderRadius:4}]},
+  options:{...base(),indexAxis:"y",plugins:{legend:{display:false}}}});}
+function drawScatter(){
+  const ms=D.members.filter(m=>m.followers>0&&m.med_views!=null);
+  // regresi OLS: med_views ~ a + b·log10(follower). Sumbu-x log → garis ini tergambar lurus.
+  const X=ms.map(m=>Math.log10(m.followers)), Y=ms.map(m=>m.med_views), n=ms.length;
+  const sx=X.reduce((a,b)=>a+b,0), sy=Y.reduce((a,b)=>a+b,0);
+  const sxx=X.reduce((a,b)=>a+b*b,0), sxy=X.reduce((a,b,i)=>a+b*Y[i],0);
+  const b=(n*sxy-sx*sy)/((n*sxx-sx*sx)||1), a=(sy-b*sx)/n;
+  const lo=Math.min(...ms.map(m=>m.followers)), hi=Math.max(...ms.map(m=>m.followers));
+  const line=[{x:lo,y:Math.max(0,a+b*Math.log10(lo))},{x:hi,y:Math.max(0,a+b*Math.log10(hi))}];
+  const teamSets=[...new Set(ms.map(m=>m.tim))].map(t=>({label:t,backgroundColor:teamColor(t),
+     data:ms.filter(m=>m.tim===t).map(m=>({x:m.followers,y:m.med_views,nama:m.nama}))}));
+  mk("cScatter",{type:"scatter",data:{datasets:[
+     {type:"line",label:"tren (regresi)",data:line,borderColor:col("--mut"),borderDash:[6,5],
+      borderWidth:1.5,pointRadius:0,fill:false,order:1},
+     ...teamSets]},
+   options:{...base(),scales:{x:{type:"logarithmic",title:{display:true,text:"Follower",color:col("--mut")},
+     ticks:{color:col("--mut")},grid:{color:col("--line")}},
+     y:{title:{display:true,text:"Median views",color:col("--mut")},ticks:{color:col("--mut")},grid:{color:col("--line")},beginAtZero:true}},
+     plugins:{legend:{labels:{color:col("--mut")}},
+       tooltip:{callbacks:{label:x=>x.raw.nama?`${x.raw.nama}: ${fn(x.raw.y)} views, ${fn(x.raw.x)} fol`:`tren ≈ ${fn(x.raw.y)} views`}}}}});}
+function drawComp(){const md=D.media_total;
+  mk("cComp",{type:"doughnut",data:{labels:Object.keys(md),datasets:[{data:Object.values(md),backgroundColor:PALETTE}]},
+   options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"right",labels:{color:col("--mut")}}}}});}
+function drawMentionBoard(){
+  const el=document.getElementById("menBoard"); const mm=D.mention_members||[];
+  if(!mm.length){el.innerHTML='<p class="note">Belum ada data mention. Terisi otomatis setelah update malam pertama berjalan (data baru, tak bisa ditarik mundur).</p>';return;}
+  const max=Math.max(...mm.map(x=>x.mentions))||1;
+  el.innerHTML=`<div class="scroll" style="max-height:320px"><table><thead><tr>
+    <th class="l">Member</th><th class="l">Handle</th><th>Mention</th><th>Akun unik</th><th>Views mention</th></tr></thead>
+    <tbody>${mm.slice(0,25).map(x=>`<tr class="clk" data-h="${x.handle}">
+      <td class="l">${esc(x.nama)}</td><td class="l">@${esc(x.handle)}</td>
+      <td class="bar"><i style="width:${Math.round(100*x.mentions/max)}%"></i><span>${fn(x.mentions)}</span></td>
+      <td>${x.authors!=null?fn(x.authors):'—'}</td><td>${fn(x.views)}</td></tr>`).join("")}</tbody></table></div>
+    <p class="mini">Terkumpul dari ${mm[0].days||0} hari update. Mention = tweet/quote yang menyebut member (tanpa reply/RT).</p>`;
+  el.querySelectorAll("tr.clk").forEach(tr=>tr.onclick=()=>openDetail(tr.dataset.h));}
+function drawHeat(){const el=document.getElementById("heat");const max=Math.max(...D.heatmap.map(x=>x.n))||1;
+  let html='<div class="lab"></div>';
+  for(let h=0;h<24;h++)html+=`<div class="lab" style="justify-content:center">${h%6===0?h:""}</div>`;
+  HARI.forEach(d=>{html+=`<div class="lab">${d}</div>`;
+    for(let h=0;h<24;h++){const n=(D.heatmap.find(x=>x.d===d&&x.h===h)||{}).n||0;
+      const a=0.08+0.92*n/max;html+=`<div class="cell" title="${d} ${h}:00 — ${n} post"
+        style="background:color-mix(in srgb,${PALETTE[0]} ${Math.round(a*100)}%,transparent)"></div>`;}});
+  el.innerHTML=html;}
+
+/* ---------- TAB: Perbandingan ---------- */
+const CMET=[
+  {k:"total_views",l:"Total views",f:fn},
+  {k:"avg_views",l:"Avg views",f:fn},
+  {k:"er",l:"ER %",f:x=>(+x||0).toFixed(2)},
+  {k:"post_utama",l:"Post utama",f:fn},
+  {k:"recv_replies",l:"Reply diterima",f:fn},
+  {k:"recv_rt_quote",l:"RT+Quote diterima",f:fn},
+  {k:"total_bookmarks",l:"Bookmark",f:fn},
+  {k:"fol_gain",l:"Follower gain",f:x=>(x>0?"+":"")+fn(x)},
+];
+const cval=(m,c)=>c.get?c.get(m):(m[c.k]??0);
+// metrik yang bisa diplot per bulan/minggu di line chart (key = field di monthly/weekly)
+const TMET=[{k:"views",l:"Total views"},{k:"avg",l:"Rata-rata views"},{k:"med",l:"Median views"},
+  {k:"er",l:"ER %",pct:1},{k:"n",l:"Jumlah post"},{k:"replies",l:"Reply diterima"},
+  {k:"rt_quote",l:"RT+Quote diterima"},{k:"bookmarks",l:"Bookmark"}];
+const tmLabel=k=>(TMET.find(x=>x.k===k)||{}).l||k;
+const tmPct=k=>!!(TMET.find(x=>x.k===k)||{}).pct;
+const tmFmt=(k,v)=>v==null?"—":(tmPct(k)?(+v).toFixed(2)+"%":fn(v));
+const PMET=CMET.filter(c=>c.k!=="post_utama");  // metrik Y utk regresi post-utama vs metrik
+let pregK="total_views";
+const stB={sel:new Set(),gen:"",tim:"",q:"",max:0}, stBperiod={v:"all"}, stBtMet={v:"avg"};
+let bSortK="total_views", bSortD=-1, bBarK="total_views";
+function buildBanding(){
+  const p=document.getElementById("p-banding");
+  if(!stB.sel.size)D.members.slice(0,5).forEach(m=>stB.sel.add(m.handle));
+  p.innerHTML=`
+    <p class="note" style="margin:14px 0">Bandingkan member — tanpa batas jumlah. Filter generasi/tim mempersempit daftar; tabel bisa diurutkan per kolom.</p>
+    <div class="controls">
+      <div class="ctl">Generasi<select id="bGen"><option value="">Semua gen</option>${D.gens.map(g=>`<option value="${g}">Gen ${g}</option>`).join("")}</select></div>
+      <div class="ctl">Tim<select id="bTim"><option value="">Semua tim</option>${D.teams.map(t=>`<option>${t}</option>`).join("")}</select></div>
+    </div>
+    <div class="multi" id="bPick" style="max-width:480px"></div>
+    <div class="card" style="margin-top:16px"><h3>Tabel perbandingan</h3><p class="note">Metrik engagement = yang <b>diterima</b> di post member (views, reply, RT+quote, bookmark). Klik judul kolom untuk urutkan, klik baris untuk detail.</p>
+      <div class="scroll" style="max-height:480px"><table id="bTbl"></table></div></div>
+    <div class="card" style="margin-top:16px"><h3>Grafik metrik</h3>
+      <div class="controls" style="margin:0 0 10px"><div class="ctl">Metrik<select id="bBar">${CMET.map(c=>`<option value="${c.k}">${c.l}</option>`).join("")}</select></div></div>
+      <div class="chart-box" id="bBarBox" style="height:320px"><canvas id="cbBar"></canvas></div></div>
+    <div class="card" style="margin-top:16px"><h3>Tren bulanan side-by-side</h3>
+      <div class="controls" style="margin:0 0 8px">
+        <div class="ctl">Periode<select id="bPer"><option value="all">Semua</option><option value="12">12 bln</option><option value="6">6 bln</option><option value="3">3 bln</option><option value="1">1 bln</option></select></div>
+        <div class="ctl">Metrik<select id="bTMet">${TMET.map(x=>`<option value="${x.k}">${x.l}</option>`).join("")}</select></div></div>
+      <p class="note" id="bNoteT"></p><div class="chart-box" style="height:320px"><canvas id="cbTrend"></canvas></div></div>
+    <div class="card" style="margin-top:16px"><h3>Post utama vs metrik (regresi otomatis)</h3>
+      <div class="controls" style="margin:0 0 8px"><div class="ctl">Metrik (sumbu Y)<select id="pregSel">${PMET.map(c=>`<option value="${c.k}">${c.l}</option>`).join("")}</select></div></div>
+      <p class="note" id="pregNote"></p><div class="chart-box" style="height:340px"><canvas id="cPreg"></canvas></div></div>`;
+  const pick=document.getElementById("bPick"); picker(pick,stB,drawBanding);
+  document.getElementById("bGen").value=stB.gen; document.getElementById("bTim").value=stB.tim;
+  document.getElementById("bBar").value=bBarK; document.getElementById("bPer").value=stBperiod.v; document.getElementById("bTMet").value=stBtMet.v;
+  document.getElementById("bGen").onchange=e=>{stB.gen=e.target.value;picker(pick,stB,drawBanding);};
+  document.getElementById("bTim").onchange=e=>{stB.tim=e.target.value;picker(pick,stB,drawBanding);};
+  document.getElementById("bBar").onchange=e=>{bBarK=e.target.value;drawBandingBar();};
+  document.getElementById("bPer").onchange=e=>{stBperiod.v=e.target.value;drawBandingTrend();};
+  document.getElementById("bTMet").onchange=e=>{stBtMet.v=e.target.value;drawBandingTrend();};
+  document.getElementById("pregSel").value=pregK;
+  document.getElementById("pregSel").onchange=e=>{pregK=e.target.value;drawPostReg();};
+  drawBanding();
+}
+function drawBanding(){drawBandingTable();drawBandingBar();drawBandingTrend();drawPostReg();}
+function drawPostReg(){
+  const c=PMET.find(x=>x.k===pregK)||PMET[0];
+  const ms=D.members.filter(m=>m.post_utama>0);
+  const X=ms.map(m=>m.post_utama), Y=ms.map(m=>cval(m,c)), n=X.length;
+  const sx=X.reduce((a,b)=>a+b,0), sy=Y.reduce((a,b)=>a+b,0);
+  const sxx=X.reduce((a,b)=>a+b*b,0), sxy=X.reduce((a,b,i)=>a+b*Y[i],0);
+  const b=(n*sxy-sx*sy)/((n*sxx-sx*sx)||1), a=(sy-b*sx)/n;
+  const lo=Math.min(...X), hi=Math.max(...X);
+  const ybar=sy/n, ssTot=Y.reduce((s,y)=>s+(y-ybar)**2,0), ssRes=Y.reduce((s,y,i)=>s+(y-(a+b*X[i]))**2,0);
+  const r2=ssTot?Math.max(0,1-ssRes/ssTot):0;
+  const teams=[...new Set(ms.map(m=>m.tim))].map(t=>({label:t,backgroundColor:teamColor(t),
+    data:ms.filter(m=>m.tim===t).map(m=>({x:m.post_utama,y:cval(m,c),nama:m.nama}))}));
+  document.getElementById("pregNote").textContent=`Hubungan jumlah post utama vs ${c.l} (${n} member). R² ${r2.toFixed(2)} · tren ${b>=0?"naik ↗":"turun ↘"}.`;
+  mk("cPreg",{type:"scatter",data:{datasets:[
+    {type:"line",label:"regresi",data:[{x:lo,y:a+b*lo},{x:hi,y:a+b*hi}],borderColor:col("--mut"),borderDash:[6,5],borderWidth:1.5,pointRadius:0,fill:false,order:1},
+    ...teams]},
+    options:{...base(),scales:{x:{title:{display:true,text:"Jumlah post utama",color:col("--mut")},ticks:{color:col("--mut")},grid:{color:col("--line")}},
+      y:{title:{display:true,text:c.l,color:col("--mut")},ticks:{color:col("--mut")},grid:{color:col("--line")},beginAtZero:true}},
+      plugins:{legend:{labels:{color:col("--mut")}},tooltip:{callbacks:{label:x=>x.raw.nama?`${x.raw.nama}: ${c.f(x.raw.y)} @ ${fn(x.raw.x)} post`:"regresi"}}}}});
+}
+function drawBandingTable(){
+  const sc=CMET.find(c=>c.k===bSortK)||CMET[0];
+  const sel=[...stB.sel].map(h=>MBY[h]).sort((a,b)=>(cval(a,sc)-cval(b,sc))*bSortD);
+  const head=`<thead><tr><th class="l">Member</th><th class="l">Tim</th><th>Gen</th>${CMET.map(c=>`<th data-k="${c.k}">${c.l}${c.k===bSortK?(bSortD<0?" ↓":" ↑"):""}</th>`).join("")}</tr></thead>`;
+  const body=`<tbody>${sel.length?sel.map(m=>`<tr class="clk" data-h="${m.handle}"><td class="l">${esc(m.nama)}</td><td class="l"><span class="pill">${esc(m.tim)}</span></td><td>${esc(m.gen||"?")}</td>${CMET.map(c=>`<td>${c.f(cval(m,c))}</td>`).join("")}</tr>`).join(""):`<tr><td class="l" colspan="${3+CMET.length}">Pilih member dulu.</td></tr>`}</tbody>`;
+  const t=document.getElementById("bTbl"); t.innerHTML=head+body;
+  t.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(bSortK===k)bSortD*=-1;else{bSortK=k;bSortD=-1;}drawBandingTable();});
+  t.querySelectorAll("tr.clk").forEach(tr=>tr.onclick=()=>openDetail(tr.dataset.h));
+}
+function drawBandingBar(){
+  const c=CMET.find(x=>x.k===bBarK)||CMET[0];
+  const sel=[...stB.sel].map(h=>MBY[h]).sort((a,b)=>cval(b,c)-cval(a,c));
+  document.getElementById("bBarBox").style.height=Math.max(240,sel.length*22+40)+"px";
+  mk("cbBar",{type:"bar",data:{labels:sel.map(m=>m.nama),datasets:[{data:sel.map(m=>cval(m,c)),backgroundColor:sel.map(m=>teamColor(m.tim)),borderRadius:3}]},
+    options:{...base(),indexAxis:"y",plugins:{legend:{display:false},tooltip:{callbacks:{label:x=>c.l+": "+c.f(x.raw)}}}}});
+}
+function drawBandingTrend(){
+  const sel=[...stB.sel].map(h=>MBY[h]); const months=periodMonths(stBperiod.v); const mkey=stBtMet.v;
+  const lbls=[...months].sort();
+  document.getElementById("bNoteT").textContent=tmLabel(mkey)+" per bulan — "+sel.length+" member"+(sel.length>8?" (pilih lebih sedikit utk garis lebih jelas)":"")+".";
+  mk("cbTrend",{type:"line",data:{labels:lbls,datasets:sel.map((m,i)=>{const mp={};m.monthly.forEach(x=>mp[x.m]=x[mkey]);
+    return{label:m.nama,data:lbls.map(l=>mp[l]??null),borderColor:PALETTE[i%PALETTE.length],backgroundColor:"transparent",tension:.3,pointRadius:sel.length>12?0:2,borderWidth:1.5,spanGaps:true};})},
+    options:{...base(),plugins:{legend:{display:sel.length<=12,labels:{color:col("--mut"),boxWidth:12}},tooltip:{callbacks:{label:x=>x.dataset.label+": "+tmFmt(mkey,x.raw)}}}}});
+}
+
+/* ---------- TAB: Tren ---------- */
+const stT={sel:new Set(),gen:"",tim:"",q:"",max:10}, stTunit={v:"monthly"}, stTmetric={v:"avg"};
+function buildTren(){
+  const p=document.getElementById("p-tren");
+  if(!stT.sel.size)D.members.slice(0,4).forEach(m=>stT.sel.add(m.handle));
+  p.innerHTML=`
+    <p class="note" style="margin:14px 0">Tren metrik dari waktu ke waktu — buat lihat momentum naik/turun. Pilih metrik + granularitas bulanan/mingguan.</p>
+    <div class="controls">
+      <div class="ctl">Metrik<select id="tMet">${TMET.map(x=>`<option value="${x.k}">${x.l}</option>`).join("")}</select></div>
+      <div class="ctl">Granularitas<select id="tUnit"><option value="monthly">Bulanan</option><option value="weekly">Mingguan</option></select></div>
+      <div class="ctl">Generasi<select id="tGen"><option value="">Semua gen</option>${D.gens.map(g=>`<option value="${g}">Gen ${g}</option>`).join("")}</select></div>
+      <div class="ctl">Tim<select id="tTim"><option value="">Semua tim</option>${D.teams.map(t=>`<option>${t}</option>`).join("")}</select></div>
+    </div>
+    <div class="multi" id="tPick" style="max-width:420px"></div>
+    <div class="card" style="margin-top:18px"><h3 id="tTitle"></h3><p class="note" id="tNote"></p>
+      <div class="chart-box" style="height:360px"><canvas id="cTren"></canvas></div></div>`;
+  const pick=document.getElementById("tPick"); picker(pick,stT,drawTren);
+  document.getElementById("tUnit").value=stTunit.v; document.getElementById("tMet").value=stTmetric.v;
+  document.getElementById("tGen").onchange=e=>{stT.gen=e.target.value;picker(pick,stT,drawTren);};
+  document.getElementById("tTim").onchange=e=>{stT.tim=e.target.value;picker(pick,stT,drawTren);};
+  document.getElementById("tUnit").onchange=e=>{stTunit.v=e.target.value;drawTren();};
+  document.getElementById("tMet").onchange=e=>{stTmetric.v=e.target.value;drawTren();};
+  drawTren();
+}
+function drawTren(){
+  const sel=[...stT.sel].map(h=>MBY[h]); const unit=stTunit.v, mkey=stTmetric.v;
+  const field=unit==="monthly"?"monthly":"weekly", key=unit==="monthly"?"m":"w";
+  const labels=[...new Set(sel.flatMap(m=>m[field].map(x=>x[key])))].sort();
+  document.getElementById("tTitle").textContent=tmLabel(mkey)+" per "+(unit==="monthly"?"bulan":"minggu");
+  document.getElementById("tNote").textContent=sel.length+" member dipilih"+(sel.length>8?" (pilih lebih sedikit utk garis lebih jelas)":"")+".";
+  mk("cTren",{type:"line",data:{labels,datasets:sel.map((m,i)=>{const mp={};m[field].forEach(x=>mp[x[key]]=x[mkey]);
+    return{label:m.nama,data:labels.map(l=>mp[l]??null),borderColor:PALETTE[i%PALETTE.length],backgroundColor:"transparent",
+      tension:.3,pointRadius:unit==="monthly"?2:0,borderWidth:2,spanGaps:true};})},
+    options:{...base(),plugins:{legend:{display:sel.length<=12,labels:{color:col("--mut"),boxWidth:12}},tooltip:{callbacks:{label:x=>x.dataset.label+": "+tmFmt(mkey,x.raw)}}}}});
+}
+
+/* ---------- TAB: Top Post ---------- */
+const stTop={mode:"all",month:"",week:"",year:"",tim:"",handle:""};
+function buildTop(){
+  const p=document.getElementById("p-top");
+  if(!stTop.month)stTop.month=ALLM.at(-1); if(!stTop.week)stTop.week=ALLW.at(-1); if(!stTop.year)stTop.year=ALLY.at(-1);
+  p.innerHTML=`
+    <p class="note" style="margin:14px 0">Top 50 post utama dengan views tertinggi. Pilih periode & filter.</p>
+    <div class="controls">
+      <div class="ctl">Periode<select id="opMode">
+        <option value="all">Semua</option><option value="year">Tahunan</option><option value="month">Bulanan</option><option value="week">Mingguan</option></select></div>
+      <div class="ctl" id="opSpecWrap"></div>
+      <div class="ctl">Tim<select id="opTim"><option value="">Semua tim</option>${D.teams.map(t=>`<option>${t}</option>`).join("")}</select></div>
+      <div class="ctl">Member<select id="opMem"><option value="">Semua member</option>${D.members.map(m=>`<option value="${m.handle}">${esc(m.nama)}</option>`).join("")}</select></div>
+    </div>
+    <div class="card"><div class="scroll" style="max-height:620px"><table id="topTbl"><thead><tr>
+      <th class="l">Tanggal</th><th class="l">Member</th><th>Views</th><th>Like</th><th class="l wrap">Teks</th><th class="l">Link</th>
+    </tr></thead><tbody></tbody></table></div><p class="mini" id="topCount"></p></div>`;
+  const wrap=document.getElementById("opSpecWrap");
+  function spec(){
+    const mode=stTop.mode;
+    if(mode==="month")wrap.innerHTML=`Bulan<select id="opSpec">${ALLM.map(m=>`<option value="${m}" ${m===stTop.month?'selected':''}>${m}</option>`).join("")}</select>`;
+    else if(mode==="week")wrap.innerHTML=`Minggu<select id="opSpec">${ALLW.map(w=>`<option value="${w}" ${w===stTop.week?'selected':''}>${w}</option>`).join("")}</select>`;
+    else if(mode==="year")wrap.innerHTML=`Tahun<select id="opSpec">${ALLY.map(y=>`<option value="${y}" ${y===stTop.year?'selected':''}>${y}</option>`).join("")}</select>`;
+    else wrap.innerHTML="";
+    const s=document.getElementById("opSpec");
+    if(s)s.onchange=e=>{const v=e.target.value;if(stTop.mode==="month")stTop.month=v;else if(stTop.mode==="week")stTop.week=v;else stTop.year=v;drawTop();};
+  }
+  document.getElementById("opMode").value=stTop.mode;
+  document.getElementById("opTim").value=stTop.tim; document.getElementById("opMem").value=stTop.handle;
+  document.getElementById("opMode").onchange=e=>{stTop.mode=e.target.value;spec();drawTop();};
+  document.getElementById("opTim").onchange=e=>{stTop.tim=e.target.value;drawTop();};
+  document.getElementById("opMem").onchange=e=>{stTop.handle=e.target.value;drawTop();};
+  spec(); drawTop();
+}
+function isoWeek(t){const d=new Date(t+"T00:00:00Z");const day=(d.getUTCDay()+6)%7;d.setUTCDate(d.getUTCDate()-day+3);
+  const f=new Date(Date.UTC(d.getUTCFullYear(),0,4));const wk=1+Math.round(((d-f)/86400000-3+((f.getUTCDay()+6)%7))/7);
+  return d.getUTCFullYear()+"-W"+String(wk).padStart(2,"0");}
+function drawTop(){
+  let pool=D.top_pool;
+  if(stTop.mode==="year")pool=pool.filter(p=>p.t.slice(0,4)===stTop.year);
+  else if(stTop.mode==="month")pool=pool.filter(p=>p.t.slice(0,7)===stTop.month);
+  else if(stTop.mode==="week")pool=pool.filter(p=>isoWeek(p.t)===stTop.week);
+  if(stTop.handle)pool=pool.filter(p=>p.h===stTop.handle);
+  else if(stTop.tim)pool=pool.filter(p=>(MBY[p.h]||{}).tim===stTop.tim);
+  const rows=pool.slice(0,50);
+  document.querySelector("#topTbl tbody").innerHTML=rows.map(pp=>{const m=MBY[pp.h]||{nama:pp.h};
+    return `<tr><td class="l">${pp.t}</td><td class="l clk" data-h="${pp.h}">${esc(m.nama)}</td><td>${fn(pp.v)}</td><td>${fn(pp.l)}</td>
+      <td class="l wrap" style="max-width:360px">${esc(pp.txt)}</td>
+      <td class="l"><a class="link" href="https://x.com/${pp.h}/status/${pp.id}" target="_blank" rel="noopener">buka ↗</a></td></tr>`;}).join("")
+    ||`<tr><td class="l" colspan="6">Tidak ada post di filter ini.</td></tr>`;
+  document.querySelectorAll("#topTbl td.clk").forEach(td=>td.onclick=()=>openDetail(td.dataset.h));
+  document.getElementById("topCount").textContent=`Menampilkan ${rows.length} dari ${pool.length} post pada filter ini.`;
+}
+
+/* ---------- Member detail modal ---------- */
+function openDetail(h){
+  const m=MBY[h]; if(!m)return;
+  const posts=D.top_pool.filter(p=>p.h===h).slice(0,10);
+  const card=document.getElementById("modalCard");
+  card.innerHTML=`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h1 style="font-size:22px">${esc(m.nama)}</h1>
+    <p class="sub">${esc(m.tim)} · Gen ${esc(m.gen||"?")} · @${esc(m.handle)}</p>
+    <div class="statgrid">
+      <div class="stat"><div class="n">${fn(m.followers)}</div><div class="l">Follower${m.fol_delta!=null?` <span class="${m.fol_delta>=0?'up':'down'}">${sign(m.fol_delta)}</span>`:""}</div></div>
+      <div class="stat"><div class="n">${fn(m.med_views)}</div><div class="l">Median views</div></div>
+      <div class="stat"><div class="n">${fn(m.avg_views)}</div><div class="l">Rata-rata views</div></div>
+      <div class="stat"><div class="n">${m.er.toFixed(2)}%</div><div class="l">ER</div></div>
+      <div class="stat"><div class="n">${fn(m.med_likes)}</div><div class="l">Median like</div></div>
+      <div class="stat"><div class="n">${fn(m.total_views)}</div><div class="l">Total views</div></div>
+      <div class="stat"><div class="n">${fn(m.post_utama)}</div><div class="l">Post utama</div></div>
+      <div class="stat"><div class="n">${fn(m.reply)}</div><div class="l">Reply</div></div>
+      <div class="stat"><div class="n">${m.views_per_1k_fol}</div><div class="l">Views / 1k follower</div></div>
+      <div class="stat"><div class="n">${m.mention_total?fn(m.mention_total):"—"}</div><div class="l">Mention diterima</div></div>
+      <div class="stat"><div class="n">${m.mention_authors!=null?fn(m.mention_authors):"—"}</div><div class="l">Akun unik mention</div></div>
+      <div class="stat"><div class="n">${m.mention_views?fn(m.mention_views):"—"}</div><div class="l">Views mention</div></div>
+    </div>
+    <div class="grid g2">
+      <div class="card"><h3>Tren median views / bulan</h3><div class="chart-box" style="height:220px"><canvas id="dTrend"></canvas></div></div>
+      <div class="card"><h3>Distribusi jam posting (WIB)</h3><div class="chart-box" style="height:220px"><canvas id="dHour"></canvas></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card"><h3>Distribusi hari</h3><div class="chart-box" style="height:200px"><canvas id="dDay"></canvas></div></div>
+      <div class="card"><h3>Top 10 post pribadi</h3>
+        <div class="scroll" style="max-height:240px"><table><thead><tr><th class="l">Tgl</th><th>Views</th><th>Like</th><th class="l">Link</th></tr></thead>
+        <tbody>${posts.map(p=>`<tr><td class="l">${p.t}</td><td>${fn(p.v)}</td><td>${fn(p.l)}</td>
+          <td class="l"><a class="link" href="https://x.com/${p.h}/status/${p.id}" target="_blank" rel="noopener">buka ↗</a></td></tr>`).join("")
+          ||'<tr><td colspan="4" class="l">Belum ada post.</td></tr>'}</tbody></table></div></div>
+    </div>`;
+  document.getElementById("modal").classList.add("on");
+  mk("dTrend",{type:"line",data:{labels:m.monthly.map(x=>x.m),datasets:[{data:m.monthly.map(x=>x.med),
+    borderColor:PALETTE[0],backgroundColor:"transparent",tension:.3,pointRadius:2,borderWidth:2}]},
+    options:{...base(),plugins:{legend:{display:false}}}});
+  mk("dHour",{type:"bar",data:{labels:[...Array(24).keys()],datasets:[{data:m.hours,backgroundColor:PALETTE[0],borderRadius:2}]},
+    options:{...base(),plugins:{legend:{display:false}}}});
+  mk("dDay",{type:"bar",data:{labels:HARI,datasets:[{data:m.weekdays,backgroundColor:PALETTE[1],borderRadius:3}]},
+    options:{...base(),plugins:{legend:{display:false}}}});
+}
+function closeModal(){document.getElementById("modal").classList.remove("on");
+  ["dTrend","dHour","dDay"].forEach(id=>{if(CH[id]){CH[id].destroy();delete CH[id];}});}
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
+</script>
+</body>
+</html>
