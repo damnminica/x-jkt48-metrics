@@ -20,7 +20,7 @@ Status per 30 Oktober 2026 · disusun dari kode, data, dan log project `~/Claude
 - **Temuan awal:**
   - Mention memuncak tepat di hasil sementara 1 (28 Sep 2024) dan hasil akhir (15 Des 2024).
   - Keramaian di X tidak sama dengan jumlah suara. Member berperingkat umumnya disebut lebih banyak akun fans daripada yang tidak berperingkat (median 1.459 vs 820 akun). Tapi di dalam 24 besar, urutannya hanya lemah-sedang mengikuti X (Spearman ρ = −0,40, n = 24): peringkat teratas tidak selalu disebut oleh akun fans terbanyak.
-- **Status:** semua job penarikan selesai. Dataset SSK sudah diekspor ke satu file Excel dan lulus verifikasi independen. Dashboard harian masih jalan. Kode belum di-commit ke git.
+- **Status:** semua job penarikan selesai. Dataset SSK sudah diekspor ke satu file Excel dan lulus verifikasi independen. Dashboard harian masih jalan. Kode, riset, dan laporan sudah di-commit ke repo git lokal project (tanpa data mentah).
 - **Langkah berikut:** model penjelas suara SSK berupa regresi tersensor. Residualnya dipakai sebagai ukuran efisiensi konversi dari dukungan di X ke suara.
 
 ---
@@ -76,7 +76,7 @@ Prinsip yang dipegang sepanjang project:
 - **Proxy residensial** (exit IP Indonesia) wajib dipakai (`REQUIRE_PROXY=1`). Worker menolak berjalan tanpa proxy.
 - **Telegram bot:** notifikasi progres, peringatan berhenti, dan kiriman Excel.
 - **Railway:** dashboard harian (`daily/`) beserta fetch harian kecilnya. Rencana awal batch di Railway dipindah ke VPS setelah Railway outage (22 Okt); insiden keamanan Railway (23 Okt) jadi pertimbangan tambahan.
-- **Docker:** `Dockerfile` dan `run.sh` (`WORKER=members|jobs|stress`) tersedia tapi belum pernah diuji. Image saat ini belum menyalin `taskqueue.py`, jadi mode `jobs` dan `stress` akan gagal sampai file itu ditambahkan.
+- **Docker:** `Dockerfile` dan `run.sh` (`WORKER=members|jobs|stress`) tersedia tapi belum pernah diuji. `taskqueue.py` baru ditambahkan ke image setelah cek fakta laporan; sebelumnya mode `jobs` dan `stress` akan gagal.
 
 ### 2.4 Tempo dan pengaman
 
@@ -295,7 +295,7 @@ Riset tersimpan di `research/01–04` (per 23 Okt 2026). Riset 01 menandai tiap 
 | Deploy dashboard saat fetch berjalan membuat data hari itu tidak lengkap | Jangan deploy saat cron atau `/refresh` berjalan |
 | `seed.tgz` dari `tar` macOS ikut file AppleDouble | Pakai Python `tarfile` atau `COPYFILE_DISABLE=1` |
 | Repost member atas tweet akun non-publik membuka anonimitas 22 baris fans (ditemukan verifier) | Perbaikan dibatalkan karena tweet member ditulis apa adanya (keputusan user); dataset jangan dibagikan mentah |
-| Dockerfile tidak menyalin `taskqueue.py` (ditemukan saat cek fakta laporan) | Belum diperbaiki; Docker belum pernah diuji |
+| Dockerfile tidak menyalin `taskqueue.py` (ditemukan saat cek fakta laporan) | Sudah ditambahkan ke Dockerfile (30 Okt); Docker tetap belum pernah diuji |
 
 ---
 
@@ -306,14 +306,14 @@ Riset tersimpan di `research/01–04` (per 23 Okt 2026). Riset 01 menandai tiap 
 - Dataset SSK lengkap sudah ada di `exports/`.
 - Dashboard harian live dengan fetch harian aktif.
 - 4 worker X di VPS aktif tapi menganggur.
-- **Kode belum di-commit ke git.**
+- Kode, riset, dan laporan sudah di-commit ke repo git lokal `x-jkt48-metrics`. Data mentah, salt hash, dan hasil ekspor sengaja dikecualikan.
 
 **Langkah berikutnya (diurutkan):**
 1. Ambil angka suara final (dan sementara, kalau ada) dari tweet @officialJKT48 di data mention, lalu bangun model patokan dan model tersensor (bagian 8).
 2. Ulangi `analysis.py` untuk 50 member (saat ini baru 6 member).
 3. Tambal hashtag yang kemungkinan terlewat, misalnya varian tanpa aksen #BLUME untuk Lily (task #BLUMÉ hanya menghasilkan 2 tweet).
 4. Uji konvergen: fans inti di X vs permintaan tiket exclusive (stockcheckerv2) vs SHOWROOM.
-5. Commit kode, lengkapi Dockerfile (`taskqueue.py`), lalu matikan atau jeda worker yang menganggur di VPS.
+5. Matikan atau jeda worker yang menganggur di VPS.
 6. Nanti: metrik publik Instagram dan TikTok lewat OpenCLI (desktop, akun cadangan, tanpa mention fans).
 
 ---
