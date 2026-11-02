@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 WIB = timezone(timedelta(hours=7))
 MAIN = ("Original", "Quote")
 MIN_AGE_DAYS = 7
+DAILY_DAYS = int(os.environ.get("DAILY_DAYS", "0"))  # jendela deret harian; 0 = semua data (sepanjang tahun). set >0 utk batasi & hemat json
 HARI = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"]
 
 
@@ -56,6 +57,8 @@ def build(data_dir, cutoff_wib):
     members, pairs, top_pool, young_posts = [], Counter(), [], []
     heat = defaultdict(int)          # (weekday, hour) -> count views-bearing posts
     media_tot, kind_tot = Counter(), Counter()
+    run_date = datetime.now(WIB).date()
+    daily_cutoff = datetime.now(WIB) - timedelta(days=DAILY_DAYS if DAILY_DAYS > 0 else 36500)  # 0 = semua data (tanpa batas)
     for path in sorted(Path(seed).glob("*_v2.json")):
         if path.name.startswith("."):
             continue
@@ -72,6 +75,7 @@ def build(data_dir, cutoff_wib):
         monthly, monthly_er, weekly, weekly_er = defaultdict(list), defaultdict(list), defaultdict(list), defaultdict(list)
         msum = defaultdict(lambda: {"views": 0, "replies": 0, "rt_quote": 0, "bookmarks": 0})
         wsum = defaultdict(lambda: {"views": 0, "replies": 0, "rt_quote": 0, "bookmarks": 0})
+        dsum = defaultdict(lambda: {"n": 0, "views": 0, "replies": 0, "rt_quote": 0, "bookmarks": 0, "v": [], "ers": 0, "ern": 0})
         hours, weekdays, mposts = [0] * 24, [0] * 7, []
         for t in raw["tweets"].values():
             ww = _wib(t["created_at"])
@@ -83,6 +87,13 @@ def build(data_dir, cutoff_wib):
                 pairs[(h.lower(), t["reply_to"].lower())] += 1
             if t["kind"] not in MAIN:
                 continue
+            # deret HARIAN: semua post utama (umur apa pun, metrik current) dlm jendela DAILY_DAYS — buat zoom harian
+            if ww >= daily_cutoff:
+                mx = t["metrics"]; ymd = ww.strftime("%Y-%m-%d"); rq = mx["retweets"] + mx["quotes"]
+                dd = dsum[ymd]; dd["n"] += 1; dd["views"] += mx["views"]; dd["replies"] += mx["replies"]
+                dd["rt_quote"] += rq; dd["bookmarks"] += mx.get("bookmarks", 0); dd["v"].append(mx["views"])
+                if mx["views"]:
+                    dd["ers"] += (mx["likes"] + rq + mx["replies"]) / mx["views"]; dd["ern"] += 1
             tf = t.get("fetched_at")  # umur per-tweet saat metrik diambil; full1 lama pakai store-level
             ref = datetime.fromisoformat(tf) if tf else fetched
             if (ref - datetime.fromisoformat(t["created_at"])).total_seconds() / 86400 < MIN_AGE_DAYS:
@@ -140,6 +151,13 @@ def build(data_dir, cutoff_wib):
                         "replies": wsum[wkk]["replies"], "rt_quote": wsum[wkk]["rt_quote"], "bookmarks": wsum[wkk]["bookmarks"],
                         "er": round(st.mean(weekly_er[wkk]) * 100, 2) if weekly_er[wkk] else 0}
                        for wkk in sorted(weekly)],
+            "daily": [{"d": dk, "n": x["n"], "views": x["views"],
+                       "avg": round(x["views"] / x["n"]) if x["n"] else 0,
+                       "med": round(st.median(x["v"])) if x["v"] else 0,
+                       "er": round(x["ers"] / x["ern"] * 100, 2) if x["ern"] else 0,
+                       "replies": x["replies"], "rt_quote": x["rt_quote"], "bookmarks": x["bookmarks"],
+                       "mt": 1 if (run_date - datetime.strptime(dk, "%Y-%m-%d").date()).days >= MIN_AGE_DAYS else 0}
+                      for dk, x in sorted(dsum.items())],
             "hours": hours, "weekdays": weekdays, "media": dict(media),
         })
     members.sort(key=lambda m: -m["med_views"])
@@ -160,6 +178,11 @@ def build(data_dir, cutoff_wib):
     # riwayat follower & mention harian (dari store harian)
     fol_hist = _read_jsonl(daily / "follower_history.jsonl")
     men_hist = _read_jsonl(daily / "mentions_daily.jsonl")
+    # deret follower harian per-member (buat grafik pertumbuhan: kumulatif/delta/%)
+    fol_series = defaultdict(list)
+    for r in sorted(fol_hist, key=lambda r: r["date"]):
+        fol_series[r["handle"]].append({"d": r["date"], "f": r["followers"], "dv": r.get("delta", 0)})
+    fol_days = sorted({r["date"] for r in fol_hist})
     fol_by_day = defaultdict(lambda: {"followers": 0, "delta": 0})
     for r in fol_hist:
         fol_by_day[r["date"]]["followers"] += r["followers"]
@@ -216,6 +239,7 @@ def build(data_dir, cutoff_wib):
         "network": [{"dari": name_by.get(a, a), "ke": name_by.get(b, b), "n": n} for (a, b), n in pairs.most_common(25)],
         "heatmap": heatmap, "media_total": dict(media_tot), "kind_total": dict(kind_tot),
         "follower_trend": follower_trend, "mention_trend": mention_trend,
+        "fol_series": dict(fol_series), "fol_days": fol_days,
         "mention_members": mention_members,
         "mention_top": sorted(
             [{"nama": name_by.get(r["handle"], r["handle"]), "mentions": r["mentions"],
