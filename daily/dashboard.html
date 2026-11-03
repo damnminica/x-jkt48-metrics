@@ -101,7 +101,12 @@ const col=n=>C.getPropertyValue(n).trim();
 const PALETTE=[col("--accent"),col("--accent2"),col("--ok"),"#c58af0","#5fb0d6","#e88fb0"];
 const HARI=["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
 const esc=s=>String(s==null?"":s).replace(/[<>&"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
-let D=null, MBY={}, ALLM=[], ALLW=[], ALLY=[];
+let D=null, MBY={}, ALLM=[], ALLW=[], ALLY=[], DMIN="", DMAX="";
+const monthEnd=ym=>{const [y,m]=ym.split("-").map(Number);return `${ym}-${String(new Date(y,m,0).getDate()).padStart(2,"0")}`;};
+function isoWeekMonday(y,w){const j4=new Date(Date.UTC(y,0,4));const d=(j4.getUTCDay()+6)%7;
+  const w1=new Date(j4);w1.setUTCDate(j4.getUTCDate()-d);const mon=new Date(w1);mon.setUTCDate(w1.getUTCDate()+(w-1)*7);return mon;}
+function weekRange(wk){const [y,w]=wk.split("-W").map(Number);const mon=isoWeekMonday(y,w);
+  const sun=new Date(mon);sun.setUTCDate(mon.getUTCDate()+6);const f=d=>d.toISOString().slice(0,10);return [f(mon),f(sun)];}
 const CH={};
 function mk(id,cfg){if(CH[id]){try{CH[id].destroy()}catch(e){}}const el=document.getElementById(id);if(!el)return;CH[id]=new Chart(el,cfg);return CH[id];}
 function destroyAll(){Object.keys(CH).forEach(k=>{try{CH[k].destroy()}catch(e){}delete CH[k];});}
@@ -117,6 +122,7 @@ function init(){
   ALLM=[...new Set(D.members.flatMap(m=>m.monthly.map(x=>x.m)))].sort();
   ALLW=[...new Set(D.members.flatMap(m=>m.weekly.map(x=>x.w)))].sort();
   ALLY=[...new Set(ALLM.map(m=>m.slice(0,4)))].sort();
+  DMIN=ALLM.length?ALLM[0]+"-01":""; DMAX=ALLM.length?monthEnd(ALLM.at(-1)):"";
   render();
 }
 
@@ -361,9 +367,10 @@ const TMET=[{k:"views",l:"Total views"},{k:"avg",l:"Rata-rata views"},{k:"med",l
 const tmLabel=k=>(TMET.find(x=>x.k===k)||{}).l||k;
 const tmPct=k=>!!(TMET.find(x=>x.k===k)||{}).pct;
 const tmFmt=(k,v)=>v==null?"—":(tmPct(k)?(+v).toFixed(2)+"%":fn(v));
-const PMET=CMET.filter(c=>c.k!=="post_utama");  // metrik Y utk regresi post-utama vs metrik
-let pregK="total_views";
-const stB={sel:new Set(),gen:"",tim:"",q:"",max:0}, stBperiod={v:"all"}, stBtMet={v:"avg"};
+const XMET=[{k:"post_utama",l:"Post utama"},{k:"total_views",l:"Total views (reach)"}];  // kandidat sumbu X regresi
+let pregX="post_utama";   // sumbu X regresi (bisa diganti)
+let pregK="total_views";  // sumbu Y regresi
+const stB={sel:new Set(),gen:"",tim:"",q:"",max:0}, stBperiod={v:"all"}, stBtMet={v:"avg"}, folMode={v:"cum"};
 let bSortK="total_views", bSortD=-1, bBarK="total_views";
 function buildBanding(){
   const p=document.getElementById("p-banding");
@@ -385,9 +392,15 @@ function buildBanding(){
         <div class="ctl">Periode<select id="bPer"><option value="all">Semua</option><option value="12">12 bln</option><option value="6">6 bln</option><option value="3">3 bln</option><option value="1">1 bln</option></select></div>
         <div class="ctl">Metrik<select id="bTMet">${TMET.map(x=>`<option value="${x.k}">${x.l}</option>`).join("")}</select></div></div>
       <p class="note" id="bNoteT"></p><div class="chart-box" style="height:320px"><canvas id="cbTrend"></canvas></div></div>
-    <div class="card" style="margin-top:16px"><h3>Post utama vs metrik (regresi otomatis)</h3>
-      <div class="controls" style="margin:0 0 8px"><div class="ctl">Metrik (sumbu Y)<select id="pregSel">${PMET.map(c=>`<option value="${c.k}">${c.l}</option>`).join("")}</select></div></div>
-      <p class="note" id="pregNote"></p><div class="chart-box" style="height:340px"><canvas id="cPreg"></canvas></div></div>`;
+    <div class="card" style="margin-top:16px"><h3>Korelasi metrik (regresi otomatis)</h3>
+      <div class="controls" style="margin:0 0 8px">
+        <div class="ctl">Sumbu X<select id="pregX">${XMET.map(c=>`<option value="${c.k}">${c.l}</option>`).join("")}</select></div>
+        <div class="ctl">Metrik (sumbu Y)<select id="pregSel"></select></div></div>
+      <p class="note" id="pregNote"></p><div class="chart-box" style="height:340px"><canvas id="cPreg"></canvas></div></div>
+    <div class="card" style="margin-top:16px"><h3>Pertumbuhan follower</h3>
+      <div class="controls" style="margin:0 0 8px"><div class="ctl">Tampilan<select id="folMode">
+        <option value="cum">Kumulatif (rebase 0)</option><option value="delta">Delta harian</option><option value="pct">% growth</option></select></div></div>
+      <p class="note" id="folNote"></p><div class="chart-box" style="height:320px"><canvas id="cFol"></canvas></div></div>`;
   const pick=document.getElementById("bPick"); picker(pick,stB,drawBanding);
   document.getElementById("bGen").value=stB.gen; document.getElementById("bTim").value=stB.tim;
   document.getElementById("bBar").value=bBarK; document.getElementById("bPer").value=stBperiod.v; document.getElementById("bTMet").value=stBtMet.v;
@@ -396,30 +409,56 @@ function buildBanding(){
   document.getElementById("bBar").onchange=e=>{bBarK=e.target.value;drawBandingBar();};
   document.getElementById("bPer").onchange=e=>{stBperiod.v=e.target.value;drawBandingTrend();};
   document.getElementById("bTMet").onchange=e=>{stBtMet.v=e.target.value;drawBandingTrend();};
-  document.getElementById("pregSel").value=pregK;
+  document.getElementById("pregX").value=pregX;
+  document.getElementById("pregX").onchange=e=>{pregX=e.target.value;fillPregY();drawPostReg();};
+  fillPregY();
   document.getElementById("pregSel").onchange=e=>{pregK=e.target.value;drawPostReg();};
+  document.getElementById("folMode").value=folMode.v;
+  document.getElementById("folMode").onchange=e=>{folMode.v=e.target.value;drawFolGrowth();};
   drawBanding();
 }
-function drawBanding(){drawBandingTable();drawBandingBar();drawBandingTrend();drawPostReg();}
+function drawBanding(){drawBandingTable();drawBandingBar();drawBandingTrend();drawPostReg();drawFolGrowth();}
+function drawFolGrowth(){
+  const sel=[...stB.sel].map(h=>MBY[h]); const ser=D.fol_series||{}, days=D.fol_days||[]; const mode=folMode.v;
+  const lab={cum:"Kumulatif penambahan follower (rebase 0)",delta:"Delta follower per hari",pct:"% pertumbuhan follower (vs hari awal)"}[mode];
+  document.getElementById("folNote").textContent=days.length?lab+` — ${sel.length} member, ${days.length} hari. (25 Okt data parsial)`:"Belum ada data follower harian.";
+  const ds=sel.map((m,i)=>{const s=ser[m.handle]||[], byd={}; s.forEach(x=>byd[x.d]=x); let cum=0; const base=s.length?s[0].f:0;
+    const data=days.map(d=>{const x=byd[d];
+      if(mode==="delta")return x?x.dv:null;
+      if(x)cum+=x.dv;
+      return mode==="pct"?(base?+(cum/base*100).toFixed(3):null):cum;});
+    return{label:m.nama,data,borderColor:PALETTE[i%PALETTE.length],backgroundColor:"transparent",tension:.25,pointRadius:2,borderWidth:2,spanGaps:true};});
+  mk("cFol",{type:mode==="delta"?"bar":"line",data:{labels:days,datasets:ds},
+    options:{...base(),plugins:{legend:{display:sel.length<=12,labels:{color:col("--mut"),boxWidth:12}},
+      tooltip:{callbacks:{label:x=>x.dataset.label+": "+(mode==="pct"?(x.raw==null?"—":x.raw+"%"):(x.raw==null?"—":(x.raw>0&&mode!=="cum"?"+":"")+fn(x.raw)))}}}}});
+}
+function fillPregY(){ // isi dropdown sumbu Y = semua metrik KECUALI yg dipakai sbg sumbu X (hindari X==Y)
+  const ys=CMET.filter(c=>c.k!==pregX);
+  if(!ys.find(c=>c.k===pregK)) pregK=ys[0].k;        // kalau Y lama == X baru, geser ke opsi pertama
+  const sel=document.getElementById("pregSel");
+  sel.innerHTML=ys.map(c=>`<option value="${c.k}">${c.l}</option>`).join("");
+  sel.value=pregK;
+}
 function drawPostReg(){
-  const c=PMET.find(x=>x.k===pregK)||PMET[0];
-  const ms=D.members.filter(m=>m.post_utama>0);
-  const X=ms.map(m=>m.post_utama), Y=ms.map(m=>cval(m,c)), n=X.length;
+  const xc=CMET.find(x=>x.k===pregX)||CMET[0];
+  const c=CMET.find(x=>x.k===pregK)||CMET.find(x=>x.k!==pregX);
+  const ms=D.members.filter(m=>cval(m,xc)>0);
+  const X=ms.map(m=>cval(m,xc)), Y=ms.map(m=>cval(m,c)), n=X.length;
   const sx=X.reduce((a,b)=>a+b,0), sy=Y.reduce((a,b)=>a+b,0);
   const sxx=X.reduce((a,b)=>a+b*b,0), sxy=X.reduce((a,b,i)=>a+b*Y[i],0);
   const b=(n*sxy-sx*sy)/((n*sxx-sx*sx)||1), a=(sy-b*sx)/n;
   const lo=Math.min(...X), hi=Math.max(...X);
   const ybar=sy/n, ssTot=Y.reduce((s,y)=>s+(y-ybar)**2,0), ssRes=Y.reduce((s,y,i)=>s+(y-(a+b*X[i]))**2,0);
-  const r2=ssTot?Math.max(0,1-ssRes/ssTot):0;
+  const r2=ssTot?Math.max(0,1-ssRes/ssTot):0, r=(b>=0?1:-1)*Math.sqrt(r2);
   const teams=[...new Set(ms.map(m=>m.tim))].map(t=>({label:t,backgroundColor:teamColor(t),
-    data:ms.filter(m=>m.tim===t).map(m=>({x:m.post_utama,y:cval(m,c),nama:m.nama}))}));
-  document.getElementById("pregNote").textContent=`Hubungan jumlah post utama vs ${c.l} (${n} member). R² ${r2.toFixed(2)} · tren ${b>=0?"naik ↗":"turun ↘"}.`;
+    data:ms.filter(m=>m.tim===t).map(m=>({x:cval(m,xc),y:cval(m,c),nama:m.nama}))}));
+  document.getElementById("pregNote").textContent=`Hubungan ${xc.l} vs ${c.l} (${n} member). R² ${r2.toFixed(2)} · r ${r.toFixed(2)} · korelasi ${b>=0?"positif ↗":"negatif ↘"}.`;
   mk("cPreg",{type:"scatter",data:{datasets:[
     {type:"line",label:"regresi",data:[{x:lo,y:a+b*lo},{x:hi,y:a+b*hi}],borderColor:col("--mut"),borderDash:[6,5],borderWidth:1.5,pointRadius:0,fill:false,order:1},
     ...teams]},
-    options:{...base(),scales:{x:{title:{display:true,text:"Jumlah post utama",color:col("--mut")},ticks:{color:col("--mut")},grid:{color:col("--line")}},
+    options:{...base(),scales:{x:{title:{display:true,text:xc.l,color:col("--mut")},ticks:{color:col("--mut")},grid:{color:col("--line")}},
       y:{title:{display:true,text:c.l,color:col("--mut")},ticks:{color:col("--mut")},grid:{color:col("--line")},beginAtZero:true}},
-      plugins:{legend:{labels:{color:col("--mut")}},tooltip:{callbacks:{label:x=>x.raw.nama?`${x.raw.nama}: ${c.f(x.raw.y)} @ ${fn(x.raw.x)} post`:"regresi"}}}}});
+      plugins:{legend:{labels:{color:col("--mut")}},tooltip:{callbacks:{label:p=>p.raw.nama?`${p.raw.nama}: ${c.f(p.raw.y)} ${c.l} · ${xc.f(p.raw.x)} ${xc.l}`:"regresi"}}}}});
 }
 function drawBandingTable(){
   const sc=CMET.find(c=>c.k===bSortK)||CMET[0];
@@ -447,15 +486,19 @@ function drawBandingTrend(){
 }
 
 /* ---------- TAB: Tren ---------- */
-const stT={sel:new Set(),gen:"",tim:"",q:"",max:10}, stTunit={v:"monthly"}, stTmetric={v:"avg"};
+const stT={sel:new Set(),gen:"",tim:"",q:"",max:10}, stTunit={v:"monthly"}, stTmetric={v:"avg"}, stTrange={from:"",to:""};
 function buildTren(){
   const p=document.getElementById("p-tren");
   if(!stT.sel.size)D.members.slice(0,4).forEach(m=>stT.sel.add(m.handle));
+  if(!stTrange.from)stTrange.from=DMIN; if(!stTrange.to)stTrange.to=DMAX;
   p.innerHTML=`
-    <p class="note" style="margin:14px 0">Tren metrik dari waktu ke waktu — buat lihat momentum naik/turun. Pilih metrik + granularitas bulanan/mingguan.</p>
+    <p class="note" style="margin:14px 0">Tren metrik dari waktu ke waktu — buat lihat momentum naik/turun. Pilih metrik, granularitas, dan <b>rentang tanggal</b>.</p>
     <div class="controls">
       <div class="ctl">Metrik<select id="tMet">${TMET.map(x=>`<option value="${x.k}">${x.l}</option>`).join("")}</select></div>
-      <div class="ctl">Granularitas<select id="tUnit"><option value="monthly">Bulanan</option><option value="weekly">Mingguan</option></select></div>
+      <div class="ctl">Granularitas<select id="tUnit"><option value="monthly">Bulanan</option><option value="weekly">Mingguan</option><option value="daily">Harian</option></select></div>
+      <div class="ctl">Dari<input type="date" id="tFrom" min="${DMIN}" max="${DMAX}" value="${stTrange.from}"></div>
+      <div class="ctl">Sampai<input type="date" id="tTo" min="${DMIN}" max="${DMAX}" value="${stTrange.to}"></div>
+      <div class="ctl">&nbsp;<button class="mini-btn" id="tReset">Reset rentang</button></div>
       <div class="ctl">Generasi<select id="tGen"><option value="">Semua gen</option>${D.gens.map(g=>`<option value="${g}">Gen ${g}</option>`).join("")}</select></div>
       <div class="ctl">Tim<select id="tTim"><option value="">Semua tim</option>${D.teams.map(t=>`<option>${t}</option>`).join("")}</select></div>
     </div>
@@ -468,17 +511,41 @@ function buildTren(){
   document.getElementById("tTim").onchange=e=>{stT.tim=e.target.value;picker(pick,stT,drawTren);};
   document.getElementById("tUnit").onchange=e=>{stTunit.v=e.target.value;drawTren();};
   document.getElementById("tMet").onchange=e=>{stTmetric.v=e.target.value;drawTren();};
+  document.getElementById("tFrom").onchange=e=>{stTrange.from=e.target.value||DMIN;drawTren();};
+  document.getElementById("tTo").onchange=e=>{stTrange.to=e.target.value||DMAX;drawTren();};
+  document.getElementById("tReset").onclick=()=>{stTrange.from=DMIN;stTrange.to=DMAX;document.getElementById("tFrom").value=DMIN;document.getElementById("tTo").value=DMAX;drawTren();};
   drawTren();
+}
+function dayRange(from,to){ // daftar tiap tanggal YYYY-MM-DD dari from s/d to (UTC, aman DST); dibatasi biar tak kebablasan
+  const out=[]; let d=new Date(from+"T00:00:00Z"); const end=new Date(to+"T00:00:00Z");
+  while(d<=end&&out.length<2000){out.push(d.toISOString().slice(0,10)); d.setUTCDate(d.getUTCDate()+1);}
+  return out;
 }
 function drawTren(){
   const sel=[...stT.sel].map(h=>MBY[h]); const unit=stTunit.v, mkey=stTmetric.v;
-  const field=unit==="monthly"?"monthly":"weekly", key=unit==="monthly"?"m":"w";
-  const labels=[...new Set(sel.flatMap(m=>m[field].map(x=>x[key])))].sort();
-  document.getElementById("tTitle").textContent=tmLabel(mkey)+" per "+(unit==="monthly"?"bulan":"minggu");
-  document.getElementById("tNote").textContent=sel.length+" member dipilih"+(sel.length>8?" (pilih lebih sedikit utk garis lebih jelas)":"")+".";
-  mk("cTren",{type:"line",data:{labels,datasets:sel.map((m,i)=>{const mp={};m[field].forEach(x=>mp[x[key]]=x[mkey]);
-    return{label:m.nama,data:labels.map(l=>mp[l]??null),borderColor:PALETTE[i%PALETTE.length],backgroundColor:"transparent",
-      tension:.3,pointRadius:unit==="monthly"?2:0,borderWidth:2,spanGaps:true};})},
+  const field=unit, key={monthly:"m",weekly:"w",daily:"d"}[unit];
+  const from=stTrange.from||DMIN, to=stTrange.to||DMAX;
+  let labels;
+  if(unit==="daily"){
+    // sumbu tiap tanggal kalender di rentang (hari tanpa post tetap muncul sbg titik kosong → jarak hari jujur)
+    labels=dayRange(from,to);
+  }else{
+    labels=[...new Set(sel.flatMap(m=>(m[field]||[]).map(x=>x[key])))].sort();
+    labels=labels.filter(l=>{if(unit==="monthly")return l>=from.slice(0,7)&&l<=to.slice(0,7);
+      const [ws,we]=weekRange(l);return we>=from&&ws<=to;});
+  }
+  const per={monthly:"bulan",weekly:"minggu",daily:"hari"}[unit];
+  document.getElementById("tTitle").textContent=tmLabel(mkey)+" per "+per;
+  document.getElementById("tNote").innerHTML=`${sel.length} member · ${from} → ${to} · ${labels.length} ${per}`
+    +(unit==="daily"?` · <b>tiap tanggal di rentang</b> (hari tanpa post = kosong); garis putus-putus = 7 hari terakhir (belum matang, diperbarui tiap malam)`:"")
+    +(sel.length>8?" · pilih lebih sedikit utk garis lebih jelas":"")+(labels.length?"":" — tak ada data di rentang ini");
+  mk("cTren",{type:"line",data:{labels,datasets:sel.map((m,i)=>{
+    const mp={},mt={}; (m[field]||[]).forEach(x=>{mp[x[key]]=x[mkey]; if(unit==="daily")mt[x.d]=x.mt;});
+    const c=PALETTE[i%PALETTE.length];
+    const ds={label:m.nama,data:labels.map(l=>mp[l]??null),borderColor:c,backgroundColor:"transparent",
+      tension:unit==="daily"?.15:.3,pointRadius:unit==="monthly"?2:(unit==="daily"?1.5:0),borderWidth:2,spanGaps:true};
+    if(unit==="daily")ds.segment={borderDash:ctx=>mt[labels[ctx.p1DataIndex]]===0?[6,4]:undefined};
+    return ds;})},
     options:{...base(),plugins:{legend:{display:sel.length<=12,labels:{color:col("--mut"),boxWidth:12}},tooltip:{callbacks:{label:x=>x.dataset.label+": "+tmFmt(mkey,x.raw)}}}}});
 }
 
