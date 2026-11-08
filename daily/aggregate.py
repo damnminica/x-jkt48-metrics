@@ -183,6 +183,10 @@ def build(data_dir, cutoff_wib):
     for r in sorted(fol_hist, key=lambda r: r["date"]):
         fol_series[r["handle"]].append({"d": r["date"], "f": r["followers"], "dv": r.get("delta", 0)})
     fol_days = sorted({r["date"] for r in fol_hist})
+    # deret mention harian per-member (buat korelasi jumlah/views mention vs follower-gain per periode)
+    men_series = defaultdict(list)
+    for r in sorted(men_hist, key=lambda r: r["date"]):
+        men_series[r["handle"]].append({"d": r["date"], "mentions": r["mentions"], "views": r.get("mention_views", 0)})
     fol_by_day = defaultdict(lambda: {"followers": 0, "delta": 0})
     for r in fol_hist:
         fol_by_day[r["date"]]["followers"] += r["followers"]
@@ -239,7 +243,7 @@ def build(data_dir, cutoff_wib):
         "network": [{"dari": name_by.get(a, a), "ke": name_by.get(b, b), "n": n} for (a, b), n in pairs.most_common(25)],
         "heatmap": heatmap, "media_total": dict(media_tot), "kind_total": dict(kind_tot),
         "follower_trend": follower_trend, "mention_trend": mention_trend,
-        "fol_series": dict(fol_series), "fol_days": fol_days,
+        "fol_series": dict(fol_series), "fol_days": fol_days, "men_series": dict(men_series),
         "mention_members": mention_members,
         "mention_top": sorted(
             [{"nama": name_by.get(r["handle"], r["handle"]), "mentions": r["mentions"],

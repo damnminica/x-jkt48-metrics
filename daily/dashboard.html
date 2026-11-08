@@ -363,13 +363,31 @@ const cval=(m,c)=>c.get?c.get(m):(m[c.k]??0);
 // metrik yang bisa diplot per bulan/minggu di line chart (key = field di monthly/weekly)
 const TMET=[{k:"views",l:"Total views"},{k:"avg",l:"Rata-rata views"},{k:"med",l:"Median views"},
   {k:"er",l:"ER %",pct:1},{k:"n",l:"Jumlah post"},{k:"replies",l:"Reply diterima"},
-  {k:"rt_quote",l:"RT+Quote diterima"},{k:"bookmarks",l:"Bookmark"}];
+  {k:"rt_quote",l:"RT+Quote diterima"},{k:"bookmarks",l:"Bookmark"},
+  {k:"men_sum",l:"Total mention"},{k:"men_avg",l:"Rata-rata mention"},{k:"men_med",l:"Median mention"},
+  {k:"mv_sum",l:"Total views mention"},{k:"mv_avg",l:"Rata-rata views mention"},{k:"mv_med",l:"Median views mention"}];
+const MENMET=new Set(["men_sum","men_avg","men_med","mv_sum","mv_avg","mv_med"]);  // metrik berbasis mention (sumber men_series)
 const tmLabel=k=>(TMET.find(x=>x.k===k)||{}).l||k;
 const tmPct=k=>!!(TMET.find(x=>x.k===k)||{}).pct;
 const tmFmt=(k,v)=>v==null?"—":(tmPct(k)?(+v).toFixed(2)+"%":fn(v));
+const _avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
+const _med=a=>{if(!a.length)return 0;const s=[...a].sort((x,y)=>x-y),m=s.length>>1;return s.length%2?s[m]:Math.round((s[m-1]+s[m])/2);};
+function isoWeekKey(ds){const d=new Date(ds+"T00:00:00Z");const day=(d.getUTCDay()+6)%7;d.setUTCDate(d.getUTCDate()-day+3);
+  const firstThu=new Date(Date.UTC(d.getUTCFullYear(),0,4));const week=1+Math.round(((d-firstThu)/864e5-3+((firstThu.getUTCDay()+6)%7))/7);
+  return d.getUTCFullYear()+"-W"+String(week).padStart(2,"0");}
+function menPeriods(h,unit){ // seri mention per-periode dari men_series (bentuk cocok array tweet: key m/w/d + men_avg/men_med/mv_avg/mv_med)
+  const rows=(D.men_series||{})[h]||[];
+  if(unit==="daily")return rows.map(r=>({d:r.d,men_sum:r.mentions,men_avg:r.mentions,men_med:r.mentions,mv_sum:r.views,mv_avg:r.views,mv_med:r.views}));
+  const K=unit==="weekly"?isoWeekKey:(ds=>ds.slice(0,7)), kn=unit==="weekly"?"w":"m", g={};
+  for(const r of rows){const k=K(r.d);(g[k]=g[k]||{m:[],v:[]});g[k].m.push(r.mentions);g[k].v.push(r.views);}
+  return Object.keys(g).sort().map(k=>{const x=g[k];return {[kn]:k,men_sum:x.m.reduce((a,b)=>a+b,0),men_avg:+_avg(x.m).toFixed(1),men_med:_med(x.m),mv_sum:x.v.reduce((a,b)=>a+b,0),mv_avg:Math.round(_avg(x.v)),mv_med:_med(x.v)};});
+}
 const XMET=[{k:"post_utama",l:"Post utama"},{k:"total_views",l:"Total views (reach)"}];  // kandidat sumbu X regresi
 let pregX="post_utama";   // sumbu X regresi (bisa diganti)
 let pregK="total_views";  // sumbu Y regresi
+const FXMET=[{k:"total_views",l:"Total views"},{k:"mentions",l:"Jumlah mention"},{k:"men_views",l:"Views mention"}];  // sumbu X kartu korelasi-follower
+let corrX="total_views";  // sumbu X kartu korelasi vs follower-gain
+let corrPeriod="14";       // periode (hari terakhir) utk korelasi follower; "all" = semua tersedia
 const stB={sel:new Set(),gen:"",tim:"",q:"",max:0}, stBperiod={v:"all"}, stBtMet={v:"avg"}, folMode={v:"cum"};
 let bSortK="total_views", bSortD=-1, bBarK="total_views";
 function buildBanding(){
@@ -400,7 +418,12 @@ function buildBanding(){
     <div class="card" style="margin-top:16px"><h3>Pertumbuhan follower</h3>
       <div class="controls" style="margin:0 0 8px"><div class="ctl">Tampilan<select id="folMode">
         <option value="cum">Kumulatif (rebase 0)</option><option value="delta">Delta harian</option><option value="pct">% growth</option></select></div></div>
-      <p class="note" id="folNote"></p><div class="chart-box" style="height:320px"><canvas id="cFol"></canvas></div></div>`;
+      <p class="note" id="folNote"></p><div class="chart-box" style="height:320px"><canvas id="cFol"></canvas></div></div>
+    <div class="card" style="margin-top:16px"><h3>Korelasi vs Follower gain (per periode)</h3>
+      <div class="controls" style="margin:0 0 8px">
+        <div class="ctl">Sumbu X<select id="cfX">${FXMET.map(c=>`<option value="${c.k}">${c.l}</option>`).join("")}</select></div>
+        <div class="ctl">Periode<select id="cfPer"><option value="7">7 hari terakhir</option><option value="14">14 hari terakhir</option><option value="30">30 hari terakhir</option><option value="all">Semua tersedia</option></select></div></div>
+      <p class="note" id="cfNote"></p><div class="chart-box" style="height:340px"><canvas id="cCorrFol"></canvas></div></div>`;
   const pick=document.getElementById("bPick"); picker(pick,stB,drawBanding);
   document.getElementById("bGen").value=stB.gen; document.getElementById("bTim").value=stB.tim;
   document.getElementById("bBar").value=bBarK; document.getElementById("bPer").value=stBperiod.v; document.getElementById("bTMet").value=stBtMet.v;
@@ -415,9 +438,13 @@ function buildBanding(){
   document.getElementById("pregSel").onchange=e=>{pregK=e.target.value;drawPostReg();};
   document.getElementById("folMode").value=folMode.v;
   document.getElementById("folMode").onchange=e=>{folMode.v=e.target.value;drawFolGrowth();};
+  document.getElementById("cfX").value=corrX;
+  document.getElementById("cfPer").value=corrPeriod;
+  document.getElementById("cfX").onchange=e=>{corrX=e.target.value;drawCorrFol();};
+  document.getElementById("cfPer").onchange=e=>{corrPeriod=e.target.value;drawCorrFol();};
   drawBanding();
 }
-function drawBanding(){drawBandingTable();drawBandingBar();drawBandingTrend();drawPostReg();drawFolGrowth();}
+function drawBanding(){drawBandingTable();drawBandingBar();drawBandingTrend();drawPostReg();drawFolGrowth();drawCorrFol();}
 function drawFolGrowth(){
   const sel=[...stB.sel].map(h=>MBY[h]); const ser=D.fol_series||{}, days=D.fol_days||[]; const mode=folMode.v;
   const lab={cum:"Kumulatif penambahan follower (rebase 0)",delta:"Delta follower per hari",pct:"% pertumbuhan follower (vs hari awal)"}[mode];
@@ -428,7 +455,7 @@ function drawFolGrowth(){
       if(x)cum+=x.dv;
       return mode==="pct"?(base?+(cum/base*100).toFixed(3):null):cum;});
     return{label:m.nama,data,borderColor:PALETTE[i%PALETTE.length],backgroundColor:"transparent",tension:.25,pointRadius:2,borderWidth:2,spanGaps:true};});
-  mk("cFol",{type:mode==="delta"?"bar":"line",data:{labels:days,datasets:ds},
+  mk("cFol",{type:"line",data:{labels:days,datasets:ds},
     options:{...base(),plugins:{legend:{display:sel.length<=12,labels:{color:col("--mut"),boxWidth:12}},
       tooltip:{callbacks:{label:x=>x.dataset.label+": "+(mode==="pct"?(x.raw==null?"—":x.raw+"%"):(x.raw==null?"—":(x.raw>0&&mode!=="cum"?"+":"")+fn(x.raw)))}}}}});
 }
@@ -439,6 +466,26 @@ function fillPregY(){ // isi dropdown sumbu Y = semua metrik KECUALI yg dipakai 
   sel.innerHTML=ys.map(c=>`<option value="${c.k}">${c.l}</option>`).join("");
   sel.value=pregK;
 }
+// ---- highlight member terpilih (checklist tab Perbandingan) di scatter regresi ----
+function selPointStyle(t){ const anySel=stB.sel.size>0; const on=ctx=>!!(ctx.raw&&ctx.raw.sel); return {
+  pointRadius:ctx=>on(ctx)?6:(anySel?2.2:3.2),
+  pointHoverRadius:ctx=>on(ctx)?7.5:4.5,
+  pointBackgroundColor:ctx=>on(ctx)?teamColor(t):(anySel?"rgba(150,160,175,0.22)":teamColor(t)),
+  pointBorderColor:ctx=>on(ctx)?"#fff":"transparent",
+  pointBorderWidth:ctx=>on(ctx)?2:0 }; }
+function selLabelPlugin(fmt){ return {id:"selLbl",afterDatasetsDraw(chart){
+  const ctx=chart.ctx, area=chart.chartArea; ctx.save();
+  ctx.font="600 11px -apple-system,system-ui,sans-serif"; ctx.textBaseline="middle";
+  chart.data.datasets.forEach((ds,di)=>{ if(ds.type==="line")return;
+    chart.getDatasetMeta(di).data.forEach((pt,i)=>{ const raw=ds.data[i];
+      if(!raw||!raw.sel)return;
+      const txt=raw.nama+(fmt?" · "+fmt(raw):""), w=ctx.measureText(txt).width;
+      let x=pt.x+9; if(x+w>area.right)x=pt.x-9-w;
+      const y=Math.max(area.top+9,Math.min(area.bottom-9,pt.y));
+      ctx.fillStyle="rgba(14,17,23,0.74)"; ctx.fillRect(x-3,y-8,w+6,16);
+      ctx.fillStyle=col("--fg"); ctx.fillText(txt,x,y); }); });
+  ctx.restore();
+}}; }
 function drawPostReg(){
   const xc=CMET.find(x=>x.k===pregX)||CMET[0];
   const c=CMET.find(x=>x.k===pregK)||CMET.find(x=>x.k!==pregX);
@@ -450,15 +497,50 @@ function drawPostReg(){
   const lo=Math.min(...X), hi=Math.max(...X);
   const ybar=sy/n, ssTot=Y.reduce((s,y)=>s+(y-ybar)**2,0), ssRes=Y.reduce((s,y,i)=>s+(y-(a+b*X[i]))**2,0);
   const r2=ssTot?Math.max(0,1-ssRes/ssTot):0, r=(b>=0?1:-1)*Math.sqrt(r2);
-  const teams=[...new Set(ms.map(m=>m.tim))].map(t=>({label:t,backgroundColor:teamColor(t),
-    data:ms.filter(m=>m.tim===t).map(m=>({x:cval(m,xc),y:cval(m,c),nama:m.nama}))}));
+  const teams=[...new Set(ms.map(m=>m.tim))].map(t=>({label:t,backgroundColor:teamColor(t),...selPointStyle(t),
+    data:ms.filter(m=>m.tim===t).map(m=>({x:cval(m,xc),y:cval(m,c),nama:m.nama,sel:stB.sel.has(m.handle)}))}));
   document.getElementById("pregNote").textContent=`Hubungan ${xc.l} vs ${c.l} (${n} member). R² ${r2.toFixed(2)} · r ${r.toFixed(2)} · korelasi ${b>=0?"positif ↗":"negatif ↘"}.`;
   mk("cPreg",{type:"scatter",data:{datasets:[
     {type:"line",label:"regresi",data:[{x:lo,y:a+b*lo},{x:hi,y:a+b*hi}],borderColor:col("--mut"),borderDash:[6,5],borderWidth:1.5,pointRadius:0,fill:false,order:1},
     ...teams]},
+    plugins:[selLabelPlugin(raw=>c.f(raw.y))],
     options:{...base(),scales:{x:{title:{display:true,text:xc.l,color:col("--mut")},ticks:{color:col("--mut")},grid:{color:col("--line")}},
       y:{title:{display:true,text:c.l,color:col("--mut")},ticks:{color:col("--mut")},grid:{color:col("--line")},beginAtZero:true}},
       plugins:{legend:{labels:{color:col("--mut")}},tooltip:{callbacks:{label:p=>p.raw.nama?`${p.raw.nama}: ${c.f(p.raw.y)} ${c.l} · ${xc.f(p.raw.x)} ${xc.l}`:"regresi"}}}}});
+}
+function shiftDay(d,n){const x=new Date(d+"T00:00:00Z");x.setUTCDate(x.getUTCDate()+n);return x.toISOString().slice(0,10);}
+function drawCorrFol(){ // regresi: X (total views / jumlah mention / views mention, DI-WINDOW periode) vs follower-gain (periode sama)
+  const fx=FXMET.find(x=>x.k===corrX)||FXMET[0];
+  const empty=msg=>{document.getElementById("cfNote").textContent=msg;mk("cCorrFol",{type:"scatter",data:{datasets:[]},options:base()});};
+  const fdays=D.fol_days||[];
+  if(!fdays.length)return empty("Belum ada data follower harian.");
+  const end=fdays[fdays.length-1];
+  const start=corrPeriod==="all"?fdays[0]:shiftDay(end,-(parseInt(corrPeriod,10)-1));
+  const sumWin=(arr,key)=>{let s=0;for(const x of (arr||[])){if(x.d>=start&&x.d<=end)s+=(x[key]||0);}return s;};
+  const folGain=h=>{const s=(D.fol_series[h]||[]).filter(x=>x.d>=start&&x.d<=end);return s.length?s[s.length-1].f-s[0].f:null;};
+  const xval=m=>corrX==="total_views"?sumWin(m.daily,"views")
+    :corrX==="mentions"?sumWin((D.men_series||{})[m.handle],"mentions")
+    :sumWin((D.men_series||{})[m.handle],"views");
+  const ms=D.members.map(m=>({m,x:xval(m),y:folGain(m.handle)})).filter(p=>p.y!==null);
+  if(!ms.length)return empty("Tak ada data follower di periode ini.");
+  const X=ms.map(p=>p.x),Y=ms.map(p=>p.y),n=X.length;
+  const sx=X.reduce((a,b)=>a+b,0),sy=Y.reduce((a,b)=>a+b,0);
+  const sxx=X.reduce((a,b)=>a+b*b,0),sxy=X.reduce((a,b,i)=>a+b*Y[i],0);
+  const b=(n*sxy-sx*sy)/((n*sxx-sx*sx)||1),a=(sy-b*sx)/n;
+  const lo=Math.min(...X),hi=Math.max(...X);
+  const ybar=sy/n,ssTot=Y.reduce((s,y)=>s+(y-ybar)**2,0),ssRes=Y.reduce((s,y,i)=>s+(y-(a+b*X[i]))**2,0);
+  const r2=ssTot?Math.max(0,1-ssRes/ssTot):0,r=(b>=0?1:-1)*Math.sqrt(r2);
+  const teams=[...new Set(ms.map(p=>p.m.tim))].map(t=>({label:t,backgroundColor:teamColor(t),...selPointStyle(t),
+    data:ms.filter(p=>p.m.tim===t).map(p=>({x:p.x,y:p.y,nama:p.m.nama,sel:stB.sel.has(p.m.handle)}))}));
+  const perLbl=corrPeriod==="all"?"semua":`${corrPeriod} hr`;
+  document.getElementById("cfNote").textContent=`${fx.l} vs Follower gain · ${start} → ${end} (${perLbl}, ${n} member). R² ${r2.toFixed(2)} · r ${r.toFixed(2)} · korelasi ${b>=0?"positif ↗":"negatif ↘"}.`;
+  mk("cCorrFol",{type:"scatter",data:{datasets:[
+    {type:"line",label:"regresi",data:[{x:lo,y:a+b*lo},{x:hi,y:a+b*hi}],borderColor:col("--mut"),borderDash:[6,5],borderWidth:1.5,pointRadius:0,fill:false,order:1},
+    ...teams]},
+    plugins:[selLabelPlugin(raw=>(raw.y>0?"+":"")+fn(raw.y))],
+    options:{...base(),scales:{x:{title:{display:true,text:fx.l+" (periode)",color:col("--mut")},ticks:{color:col("--mut")},grid:{color:col("--line")},beginAtZero:true},
+      y:{title:{display:true,text:"Follower gain (periode)",color:col("--mut")},ticks:{color:col("--mut")},grid:{color:col("--line")}}},
+      plugins:{legend:{labels:{color:col("--mut")}},tooltip:{callbacks:{label:p=>p.raw.nama?`${p.raw.nama}: ${(p.raw.y>0?"+":"")+fn(p.raw.y)} follower · ${fn(p.raw.x)} ${fx.l.toLowerCase()}`:"regresi"}}}}});
 }
 function drawBandingTable(){
   const sc=CMET.find(c=>c.k===bSortK)||CMET[0];
@@ -523,28 +605,30 @@ function dayRange(from,to){ // daftar tiap tanggal YYYY-MM-DD dari from s/d to (
 }
 function drawTren(){
   const sel=[...stT.sel].map(h=>MBY[h]); const unit=stTunit.v, mkey=stTmetric.v;
-  const field=unit, key={monthly:"m",weekly:"w",daily:"d"}[unit];
+  const key={monthly:"m",weekly:"w",daily:"d"}[unit];
+  const isMen=MENMET.has(mkey);                 // metrik mention → sumber men_series (bucket di client)
+  const srcOf=m=>isMen?menPeriods(m.handle,unit):(m[unit]||[]);
   const from=stTrange.from||DMIN, to=stTrange.to||DMAX;
   let labels;
   if(unit==="daily"){
     // sumbu tiap tanggal kalender di rentang (hari tanpa post tetap muncul sbg titik kosong → jarak hari jujur)
     labels=dayRange(from,to);
   }else{
-    labels=[...new Set(sel.flatMap(m=>(m[field]||[]).map(x=>x[key])))].sort();
+    labels=[...new Set(sel.flatMap(m=>srcOf(m).map(x=>x[key])))].sort();
     labels=labels.filter(l=>{if(unit==="monthly")return l>=from.slice(0,7)&&l<=to.slice(0,7);
       const [ws,we]=weekRange(l);return we>=from&&ws<=to;});
   }
   const per={monthly:"bulan",weekly:"minggu",daily:"hari"}[unit];
   document.getElementById("tTitle").textContent=tmLabel(mkey)+" per "+per;
   document.getElementById("tNote").innerHTML=`${sel.length} member · ${from} → ${to} · ${labels.length} ${per}`
-    +(unit==="daily"?` · <b>tiap tanggal di rentang</b> (hari tanpa post = kosong); garis putus-putus = 7 hari terakhir (belum matang, diperbarui tiap malam)`:"")
+    +(unit==="daily"?(isMen?` · <b>tiap tanggal di rentang</b> (hari tanpa mention = kosong)`:` · <b>tiap tanggal di rentang</b> (hari tanpa post = kosong); garis putus-putus = 7 hari terakhir (belum matang, diperbarui tiap malam)`):"")
     +(sel.length>8?" · pilih lebih sedikit utk garis lebih jelas":"")+(labels.length?"":" — tak ada data di rentang ini");
   mk("cTren",{type:"line",data:{labels,datasets:sel.map((m,i)=>{
-    const mp={},mt={}; (m[field]||[]).forEach(x=>{mp[x[key]]=x[mkey]; if(unit==="daily")mt[x.d]=x.mt;});
+    const mp={},mt={}; srcOf(m).forEach(x=>{mp[x[key]]=x[mkey]; if(unit==="daily"&&!isMen)mt[x.d]=x.mt;});
     const c=PALETTE[i%PALETTE.length];
     const ds={label:m.nama,data:labels.map(l=>mp[l]??null),borderColor:c,backgroundColor:"transparent",
       tension:unit==="daily"?.15:.3,pointRadius:unit==="monthly"?2:(unit==="daily"?1.5:0),borderWidth:2,spanGaps:true};
-    if(unit==="daily")ds.segment={borderDash:ctx=>mt[labels[ctx.p1DataIndex]]===0?[6,4]:undefined};
+    if(unit==="daily"&&!isMen)ds.segment={borderDash:ctx=>mt[labels[ctx.p1DataIndex]]===0?[6,4]:undefined};
     return ds;})},
     options:{...base(),plugins:{legend:{display:sel.length<=12,labels:{color:col("--mut"),boxWidth:12}},tooltip:{callbacks:{label:x=>x.dataset.label+": "+tmFmt(mkey,x.raw)}}}}});
 }
