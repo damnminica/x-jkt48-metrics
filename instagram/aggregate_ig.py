@@ -73,7 +73,7 @@ def x_followers():
     return out
 
 
-def build(snap_dir=None, out=None):
+def build(snap_dir=None, out=None, x_followers_map=None):
     snap_dir = Path(snap_dir) if snap_dir else (HERE / "snapshots")
     out = Path(out) if out else (HERE / "ig_data.json")
     days = read_snapshots(snap_dir)
@@ -82,7 +82,7 @@ def build(snap_dir=None, out=None):
         raise SystemExit(f"Belum ada snapshot di {snap_dir}")
     latest = dates[-1]
     cur = days[latest]
-    xf = x_followers()
+    xf = x_followers_map if x_followers_map is not None else x_followers()
 
     # time-series per handle (hanya akun, bukan baris shared)
     series = {}

@@ -87,10 +87,28 @@
   .stat .n{font-family:var(--serif);font-size:19px;font-variant-numeric:tabular-nums}
   .stat .l{color:var(--mut);font-size:11px;margin-top:2px}
   a.link{color:var(--accent);text-decoration:none} a.link:hover{text-decoration:underline}
+  /* top-level platform nav (X / Instagram) */
+  .topnav{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:14px;
+    background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line);padding:10px max(16px,env(safe-area-inset-left))}
+  .topnav .brand{font-family:var(--serif);font-size:16px}
+  .topnav .brand b{color:var(--accent);font-weight:400}
+  .platpills{display:flex;gap:6px;margin-left:auto}
+  .platpill{font:inherit;font-weight:600;font-size:13px;color:var(--mut);background:none;
+    border:1px solid var(--line);border-radius:999px;padding:6px 15px;cursor:pointer}
+  .platpill.on{color:#fff;background:var(--accent);border-color:var(--accent)}
 </style>
 </head>
 <body>
+<div class="topnav">
+  <div class="brand">JKT48 <b>Metrics</b></div>
+  <div class="platpills">
+    <button id="nav-x" class="platpill on">𝕏 Twitter</button>
+    <button id="nav-ig" class="platpill">Instagram</button>
+  </div>
+</div>
 <div class="wrap" id="app"><div class="loading">Memuat data…</div></div>
+<div class="wrap" id="igapp" style="display:none"><div class="loading">Memuat data Instagram…</div></div>
 <div class="modal" id="modal"><div class="modal-card" id="modalCard"></div></div>
 <script>
 const F=new Intl.NumberFormat("id-ID");
@@ -734,6 +752,107 @@ function openDetail(h){
 function closeModal(){document.getElementById("modal").classList.remove("on");
   ["dTrend","dHour","dDay"].forEach(id=>{if(CH[id]){CH[id].destroy();delete CH[id];}});}
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
+</script>
+<script>
+/* ===== Tab Instagram (namespaced; pakai ulang helper & palette dashboard X) ===== */
+(function(){
+  let igD=null, done=false, sk="rank", sa=true;
+  const $=id=>document.getElementById(id);
+  window.__igEnsure=function(){
+    if(done) return; done=true;
+    fetch("ig_data.json?"+Date.now()).then(r=>r.json()).then(d=>{igD=d;render();})
+      .catch(e=>{done=false;$("igapp").innerHTML='<div class="loading">Gagal memuat data Instagram: '+esc(e)+'</div>';});
+  };
+  function render(){
+    const d=igD;
+    const tiles=[
+      [fn(d.total_followers),"Total Follower IG",d.n_members+" akun member"],
+      [fn(d.avg_followers),"Rata-rata / Member",""],
+      [fn(d.total_posts),"Total Post",""],
+      [d.u16?fn(d.u16.followers):"–","Akun Bersama U-16",d.u16?d.u16.posts+" post":""],
+    ].map(t=>`<div class="tile"><div class="n">${t[0]}</div><div class="l">${t[1]}</div>${t[2]?`<div class="d">${t[2]}</div>`:""}</div>`).join("");
+    $("igapp").innerHTML=`
+      <h1>JKT48 — Instagram</h1>
+      <p class="sub">${d.n_members} member · ${fn(d.total_followers)} follower · update ${esc(d.generated)}</p>
+      <div class="tiles">${tiles}</div>
+      <div class="grid g2">
+        <div class="card"><h3>Top 20 Follower</h3><p class="note">Follower EKSAK via crawler publik.</p>
+          <div class="chart-box" style="height:520px"><canvas id="igFol"></canvas></div></div>
+        <div class="card"><h3>Share Follower per Tim</h3><div class="chart-box"><canvas id="igTeam"></canvas></div>
+          <h3 style="margin:18px 0 2px">Member Paling Aktif (Post)</h3><div class="chart-box"><canvas id="igPost"></canvas></div></div>
+      </div>
+      <h2>Instagram vs X — Follower per Member</h2>
+      <div class="card"><p class="note">Garis putus = IG sama dengan X. Di atas garis = basis IG lebih besar dari X. Angka tooltip = rasio IG/X.</p>
+        <div class="chart-box" style="height:460px"><canvas id="igCross"></canvas></div></div>
+      <h2>Leaderboard</h2>
+      <div class="card"><p class="note" id="igLbNote"></p>
+        <div class="scroll" style="max-height:560px"><table id="igTbl"><thead><tr>
+          <th class="l" data-k="rank">#</th><th class="l" data-k="panggilan">Member</th><th class="l" data-k="tim">Tim</th>
+          <th data-k="followers">Follower</th><th data-k="d_fol">Δ</th><th data-k="posts">Post</th>
+          <th data-k="following">Following</th><th data-k="x_fol">X</th><th data-k="ig_x_ratio">IG/X</th>
+        </tr></thead><tbody></tbody></table></div></div>
+      <p class="foot">Data via og-tag/crawler publik Instagram · ${d.dates.length} snapshot (${d.dates[0]} – ${d.latest_date}) · tanpa login.
+        Likes/komentar/views Reels butuh jalur ber-login (belum).</p>`;
+    charts(d); table(d.members);
+    $("igLbNote").textContent=d.members.some(m=>m.d_fol!=null)
+      ? "Δ = perubahan follower sejak snapshot sebelumnya." : "Δ follower muncul setelah ≥2 snapshot eksak.";
+    $("igTbl").querySelectorAll("th").forEach(th=>th.addEventListener("click",()=>{
+      const k=th.dataset.k; if(k===sk)sa=!sa; else{sk=k;sa=(k==="panggilan"||k==="tim"||k==="rank");} table(d.members);}));
+  }
+  function charts(d){
+    const top=d.members.slice(0,20);
+    mk("igFol",{type:"bar",data:{labels:top.map(m=>m.panggilan),
+      datasets:[{data:top.map(m=>m.followers),backgroundColor:top.map(m=>teamColor(m.tim)),borderRadius:4}]},
+      options:{...base(),indexAxis:"y",plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fn(c.raw)+" follower"}}}}});
+    mk("igTeam",{type:"doughnut",data:{labels:d.teams.map(t=>t.tim),
+      datasets:[{data:d.teams.map(t=>t.followers),backgroundColor:d.teams.map(t=>teamColor(t.tim)),borderColor:col("--panel"),borderWidth:2}]},
+      options:{responsive:true,maintainAspectRatio:false,cutout:"58%",plugins:{legend:{position:"bottom",labels:{color:col("--mut"),boxWidth:12}},
+        tooltip:{callbacks:{label:c=>c.label+": "+fn(c.raw)}}}}});
+    const bp=[...d.members].filter(m=>m.posts!=null).sort((a,b)=>b.posts-a.posts).slice(0,12);
+    mk("igPost",{type:"bar",data:{labels:bp.map(m=>m.panggilan),
+      datasets:[{data:bp.map(m=>m.posts),backgroundColor:bp.map(m=>teamColor(m.tim)),borderRadius:3}]},
+      options:{...base(),plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.raw+" post"}}}}});
+    if(d.has_x){
+      const cr=d.members.filter(m=>m.x_fol); const mx=Math.max(...cr.flatMap(m=>[m.followers,m.x_fol]));
+      mk("igCross",{type:"scatter",data:{datasets:[
+        ...d.teams.map(t=>({label:t.tim,data:cr.filter(m=>m.tim===t.tim).map(m=>({x:m.x_fol,y:m.followers,n:m.panggilan,r:m.ig_x_ratio})),
+          backgroundColor:teamColor(t.tim),pointRadius:5,pointHoverRadius:7})),
+        {label:"IG = X",type:"line",data:[{x:0,y:0},{x:mx,y:mx}],borderColor:col("--line"),borderDash:[6,5],borderWidth:1,pointRadius:0}
+      ]},options:{...base(),plugins:{legend:{position:"bottom",labels:{color:col("--mut"),boxWidth:12}},
+        tooltip:{callbacks:{label:c=>c.raw&&c.raw.n?`${c.raw.n}: IG ${fn(c.raw.y)} vs X ${fn(c.raw.x)} (${c.raw.r}×)`:""}}},
+        scales:{x:{title:{display:true,text:"Follower X",color:col("--mut")},ticks:{color:col("--mut")},grid:{color:col("--line")}},
+                y:{title:{display:true,text:"Follower Instagram",color:col("--mut")},ticks:{color:col("--mut")},grid:{color:col("--line")}}}}});
+    }
+  }
+  function table(rows){
+    const s=[...rows].sort((a,b)=>{let x=a[sk],y=b[sk];x=x==null?-Infinity:x;y=y==null?-Infinity:y;
+      if(typeof x==="string")return sa?(""+x).localeCompare(y):(""+y).localeCompare(x);return sa?x-y:y-x;});
+    $("igTbl").querySelector("tbody").innerHTML=s.map(m=>`<tr>
+      <td class="l">${m.rank}</td>
+      <td class="l"><span style="color:${teamColor(m.tim)}">●</span> ${esc(m.panggilan)}${m.is_verified?' <span style="color:var(--accent)" title="verified">✓</span>':''} <span class="pill">@${esc(m.handle)}</span></td>
+      <td class="l">${esc(m.tim)}</td>
+      <td title="${fn(m.followers)}">${fn(m.followers)}</td>
+      <td class="${m.d_fol>0?'up':m.d_fol<0?'down':''}">${m.d_fol==null?'–':sign(m.d_fol)}</td>
+      <td>${m.posts==null?'–':m.posts}</td>
+      <td>${fn(m.following)}</td>
+      <td>${m.x_fol?fn(m.x_fol):'–'}</td>
+      <td>${m.ig_x_ratio?m.ig_x_ratio+'×':'–'}</td>
+    </tr>`).join("");
+  }
+})();
+/* ===== Top-nav X / Instagram ===== */
+(function(){
+  const vx=document.getElementById("app"), vi=document.getElementById("igapp");
+  const bx=document.getElementById("nav-x"), bi=document.getElementById("nav-ig");
+  function show(v){
+    vx.style.display=v==="ig"?"none":""; vi.style.display=v==="ig"?"":"none";
+    bx.classList.toggle("on",v!=="ig"); bi.classList.toggle("on",v==="ig");
+    if(v==="ig") window.__igEnsure&&window.__igEnsure();
+    try{history.replaceState(null,"","#"+v);}catch(e){}
+  }
+  bx.onclick=()=>show("x"); bi.onclick=()=>show("ig");
+  show(location.hash==="#ig"?"ig":"x");
+})();
 </script>
 </body>
 </html>

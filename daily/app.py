@@ -26,6 +26,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import aggregate as agg  # noqa: E402
 import fetch_daily as fd  # noqa: E402
 from sheets import Sheets  # noqa: E402
+sys.path.insert(0, str(ROOT / "instagram"))
+import ig_fetch  # noqa: E402
+import aggregate_ig  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("app")
@@ -36,7 +39,13 @@ DATA_JSON = DATA / "daily_data.json"
 SEED = Path(__file__).resolve().parent / "seed.tgz"
 HERE = Path(__file__).resolve().parent
 CUTOFF = os.environ.get("CUTOFF", "2025-10-22")
+# Instagram (metrik profil publik via crawler; snapshot persist di volume)
+IG_SNAP = DATA / "ig_snapshots"
+IG_DATA = DATA / "ig_data.json"
+IG_REPO_SNAP = ROOT / "instagram" / "snapshots"
+IG_PAUSE = float(os.environ.get("IG_PAUSE", "1.2"))
 _lock = threading.Lock()
+_ig_lock = threading.Lock()
 
 app = Flask(__name__)
 
@@ -146,9 +155,76 @@ def _snapshot_to_sheets(sheets):
                     "med_likes", "er", "views_per_1k_fol"], rows)
 
 
+def seed_ig():
+    IG_SNAP.mkdir(parents=True, exist_ok=True)
+    if not any(IG_SNAP.glob("ig_*.csv")) and IG_REPO_SNAP.exists():
+        import shutil
+        for p in IG_REPO_SNAP.glob("ig_*.csv"):
+            shutil.copy(p, IG_SNAP / p.name)
+        log.info("Seed %d snapshot IG dari repo", len(list(IG_SNAP.glob("ig_*.csv"))))
+
+
+def _x_follower_map():
+    """{panggilan -> follower X} dari data X terkini, untuk perbandingan lintas-platform IG vs X."""
+    import json
+    if not DATA_JSON.exists():
+        return {}
+    try:
+        d = json.loads(DATA_JSON.read_text())
+        return {m.get("nama"): m.get("followers") for m in d.get("members", []) if m.get("nama")}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def rebuild_ig():
+    try:
+        aggregate_ig.build(snap_dir=IG_SNAP, out=IG_DATA, x_followers_map=_x_follower_map())
+        log.info("ig_data.json diperbarui")
+    except SystemExit as e:
+        log.warning("rebuild IG dilewati: %s", e)
+    except Exception as e:  # noqa: BLE001
+        log.warning("rebuild IG gagal: %s", e)
+
+
+def run_ig_fetch():
+    if os.environ.get("FETCH_ENABLED", "1") != "1":
+        return
+    if not _ig_lock.acquire(blocking=False):
+        log.warning("Penarikan IG lain masih jalan; lewati.")
+        return
+    try:
+        date = datetime.now(WIB).strftime("%Y-%m-%d")
+        log.info("Mulai tarik IG %s", date)
+        ig_fetch.run(date=date, out_dir=IG_SNAP, pause=IG_PAUSE)
+        rebuild_ig()
+        log.info("Selesai tarik IG %s", date)
+    except Exception as e:  # noqa: BLE001
+        log.warning("tarik IG gagal: %s", e)
+    finally:
+        _ig_lock.release()
+
+
 @app.route("/")
 def index():
     return send_from_directory(HERE, "dashboard.html")
+
+
+@app.route("/ig_data.json")
+def ig_data_json():
+    if not IG_DATA.exists():
+        rebuild_ig()
+    if IG_DATA.exists():
+        return Response(IG_DATA.read_text(), mimetype="application/json")
+    return jsonify({"error": "belum ada data IG"}), 404
+
+
+@app.route("/refresh_ig")
+def refresh_ig():
+    key = os.environ.get("REFRESH_KEY", "")
+    if not key or request.args.get("key") != key:
+        return jsonify({"error": "key salah"}), 403
+    threading.Thread(target=run_ig_fetch, daemon=True).start()
+    return jsonify({"ok": True, "msg": "penarikan IG dimulai di latar belakang"})
 
 
 @app.route("/data.json")
@@ -177,8 +253,9 @@ def start_scheduler():
         from apscheduler.schedulers.background import BackgroundScheduler
         sched = BackgroundScheduler(timezone="Asia/Jakarta")
         sched.add_job(run_fetch, "cron", hour=0, minute=0, id="daily", misfire_grace_time=3600)
+        sched.add_job(run_ig_fetch, "cron", hour=2, minute=0, id="ig_daily", misfire_grace_time=3600, coalesce=True)
         sched.start()
-        log.info("Scheduler aktif: tiap 00:00 WIB.")
+        log.info("Scheduler aktif: X 00:00 WIB, Instagram 02:00 WIB.")
     except Exception as e:
         log.warning("Scheduler gagal: %s", e)
 
@@ -188,6 +265,8 @@ try:
     rebuild()  # selalu rebuild saat boot → format daily_data.json selalu ikut versi aggregate terbaru
 except Exception as e:
     log.warning("rebuild saat boot gagal: %s", e)
+seed_ig()
+rebuild_ig()  # bangun ig_data.json dari snapshot (seed repo) saat boot
 start_scheduler()
 
 if __name__ == "__main__":
