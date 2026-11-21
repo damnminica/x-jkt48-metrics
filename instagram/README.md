@@ -3,9 +3,35 @@
 Pelengkap proyek metrik X (`../`). Tujuan: metrik publik akun **Instagram** tiap member JKT48 (follower, post, likes, comments, views Reels) — **tanpa mention fans** (keputusan: mention fans khusus X).
 
 ## Status
-- **Fase 1 — Riset username ✅ SELESAI & terverifikasi (2026-11-21).** Hasil: `members_ig.csv` (+ `.json`). 58 member + 1 akun bersama. Semua terselesaikan (tak ada lagi yang ragu) setelah koreksi user + verifikasi langsung IG og-tag.
-- Distribusi `status_akun`: **50 aktif** (akun individual berisi) · **3 placeholder** (handle ada, 0 post) · **5 shared** (konten via `jkt48.u16`) · **1 hub** (akun bersama `jkt48.u16`).
-- Follower akun yang diverifikasi langsung (og-tag Nov 2026) lebih akurat dari snapshot aggregator.
+- **Fase 1 — Riset username ✅ SELESAI & terverifikasi (2026-11-21).** `members_ig.csv`/`.json`. 58 member + 1 akun bersama. status_akun: 50 aktif · 3 placeholder · 5 shared · 1 hub.
+- **Fase 2 — Otomasi + metrik EKSAK + dashboard ✅ BUILT (2026-11-22).** Fetcher headless, scheduler harian, dashboard web. Lihat **Sistem** di bawah.
+
+## Sistem (fase 2)
+Alur: `ig_fetch.py` → `snapshots/ig_<tgl>.csv` → `aggregate_ig.py` → `ig_data.json` → `dashboard.html` (disajikan `app.py`).
+
+| File | Fungsi |
+|---|---|
+| `ig_fetch.py` | **Engine.** Tarik metrik EKSAK tiap akun via UA crawler (Googlebot) → HTML SSR IG menanam `follower_count`/`following_count`/`is_verified` eksak + og untuk post. **Headless, tanpa login/cookie/Playwright/akun cadangan.** `python ig_fetch.py [--only h1,h2] [--date ..]` |
+| `aggregate_ig.py` | Gabung semua snapshot → `ig_data.json`: time-series, delta follower/post, agregat tim, perbandingan lintas-platform IG vs X (`../dash_ds/members.json`). |
+| `dashboard.html` | Dashboard (Chart.js): stat, Top-20, share tim, post teraktif, scatter IG-vs-X, leaderboard (verified, rasio IG/X, sortable). |
+| `app.py` | Flask + APScheduler. `/` dashboard, `/ig_data.json`, `/health`, `/refresh?key=`. Scheduler **00:00 WIB** tarik+rebuild. Seed snapshot dari repo bila volume kosong. |
+| `Dockerfile`/`requirements.txt` | Deploy Railway (service kedua, `dockerfilePath: instagram/Dockerfile`). Pasang Volume di `/data` agar snapshot persist. Env: `REFRESH_KEY`, `FETCH_ENABLED`, `IG_PAUSE`. |
+
+### Kenapa ini mengubah rencana awal
+Rencana lama (OpenCLI/Agent-Reach + akun IG cadangan) **tidak lagi perlu** untuk metrik akun (follower/following/post). Trik UA crawler memberi angka **eksak** dari server headless. Akun cadangan hanya perlu bila nanti mau metrik per-post (likes/komentar/views Reels), yang tak ada di HTML publik.
+
+### Jalankan lokal
+```
+pip install -r requirements.txt
+python ig_fetch.py            # tarik snapshot hari ini
+python aggregate_ig.py        # bangun ig_data.json
+PORT=8010 python app.py       # buka http://localhost:8010
+```
+
+### Keterbatasan
+- og membulatkan follower jutaan ("2M"), TAPI JSON SSR crawler = **eksak** → fetcher pakai yang eksak. Posts dari og (eksak).
+- Metrik per-post (ER, likes, views Reels) butuh jalur ber-login (akun cadangan) — belum dibangun.
+- Delta follower muncul setelah ≥2 snapshot eksak (mulai 2026-11-22). Batas metode og(21)→eksak(22) di-skip agar tak ada lonjakan palsu.
 
 ## Pola username (PENTING untuk scraper — jangan template buta)
 Tidak ada satu pola. Ditemukan ≥4 varian:
