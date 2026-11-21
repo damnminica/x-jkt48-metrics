@@ -46,6 +46,12 @@ def make_client():
         sys.exit("pip install instagrapi")
     cl = Client()
     cl.delay_range = [2, 5]  # jeda acak antar-panggilan (sopan ke IG)
+    proxy = os.environ.get("IG_PROXY", "").strip()  # WAJIB bila jalan dari IP datacenter (Railway)
+    if proxy:
+        try:
+            cl.set_proxy(proxy)
+        except Exception:  # noqa: BLE001
+            pass
     if SETTINGS.exists():
         try:
             cl.load_settings(SETTINGS)
@@ -144,7 +150,8 @@ def run(date=None, only=None, out_dir=None, max_posts=36, pause=3.0):
             pk = (ig_fetch.fetch_one(t["ig_username"], pub, pause=0.5) or {}).get("pk")
             if not pk:
                 pk = cl.user_id_from_username(t["ig_username"])
-            medias = cl.user_medias_v1(int(pk), amount=max_posts)
+            amount = max_posts if max_posts and max_posts > 0 else 0  # 0 = SEMUA post
+            medias = cl.user_medias_v1(int(pk), amount=amount)
             posts = [parse_media(m) for m in medias]
         except Exception as e:  # noqa: BLE001
             print(f"  {i}/{len(targets)} {t['ig_username']:<18} GAGAL: {str(e)[:70]}", flush=True)

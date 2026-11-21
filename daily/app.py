@@ -29,6 +29,7 @@ from sheets import Sheets  # noqa: E402
 sys.path.insert(0, str(ROOT / "instagram"))
 import ig_fetch  # noqa: E402
 import aggregate_ig  # noqa: E402
+import ig_posts  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("app")
@@ -44,6 +45,7 @@ IG_SNAP = DATA / "ig_snapshots"
 IG_DATA = DATA / "ig_data.json"
 IG_REPO_SNAP = ROOT / "instagram" / "snapshots"
 IG_PAUSE = float(os.environ.get("IG_PAUSE", "1.2"))
+IG_POST_MAX = int(os.environ.get("IG_POST_MAX", "30"))  # post/member utk engagement; 0 = SEMUA
 _lock = threading.Lock()
 _ig_lock = threading.Lock()
 
@@ -204,6 +206,28 @@ def run_ig_fetch():
         _ig_lock.release()
 
 
+def run_ig_posts():
+    """Fetch engagement PER-POST (instagrapi) → rebuild. Butuh IG_SESSIONID (akun cadangan).
+    PERINGATAN: dari IP datacenter (Railway) IG mudah mem-flag akun → SANGAT disarankan set
+    IG_PROXY (residensial). Serialisasi dgn fetch follower IG lewat _ig_lock."""
+    if os.environ.get("FETCH_ENABLED", "1") != "1" or not os.environ.get("IG_SESSIONID"):
+        return
+    if not _ig_lock.acquire(blocking=False):
+        log.warning("Penarikan IG lain masih jalan; lewati post-fetch.")
+        return
+    try:
+        date = datetime.now(WIB).strftime("%Y-%m-%d")
+        log.info("Mulai tarik POST IG %s (max=%s, proxy=%s)", date, IG_POST_MAX,
+                 bool(os.environ.get("IG_PROXY")))
+        ig_posts.run(date=date, out_dir=IG_SNAP, max_posts=IG_POST_MAX)
+        rebuild_ig()
+        log.info("Selesai tarik POST IG %s", date)
+    except Exception as e:  # noqa: BLE001
+        log.warning("tarik POST IG gagal: %s", e)
+    finally:
+        _ig_lock.release()
+
+
 @app.route("/")
 def index():
     return send_from_directory(HERE, "dashboard.html")
@@ -225,6 +249,17 @@ def refresh_ig():
         return jsonify({"error": "key salah"}), 403
     threading.Thread(target=run_ig_fetch, daemon=True).start()
     return jsonify({"ok": True, "msg": "penarikan IG dimulai di latar belakang"})
+
+
+@app.route("/refresh_ig_posts")
+def refresh_ig_posts():
+    key = os.environ.get("REFRESH_KEY", "")
+    if not key or request.args.get("key") != key:
+        return jsonify({"error": "key salah"}), 403
+    if not os.environ.get("IG_SESSIONID"):
+        return jsonify({"error": "IG_SESSIONID belum di-set"}), 400
+    threading.Thread(target=run_ig_posts, daemon=True).start()
+    return jsonify({"ok": True, "msg": "penarikan POST IG dimulai di latar belakang"})
 
 
 @app.route("/data.json")
@@ -254,8 +289,9 @@ def start_scheduler():
         sched = BackgroundScheduler(timezone="Asia/Jakarta")
         sched.add_job(run_fetch, "cron", hour=0, minute=0, id="daily", misfire_grace_time=3600)
         sched.add_job(run_ig_fetch, "cron", hour=2, minute=0, id="ig_daily", misfire_grace_time=3600, coalesce=True)
+        sched.add_job(run_ig_posts, "cron", hour=2, minute=30, id="ig_posts_daily", misfire_grace_time=3600, coalesce=True)
         sched.start()
-        log.info("Scheduler aktif: X 00:00 WIB, Instagram 02:00 WIB.")
+        log.info("Scheduler aktif: X 00:00, IG follower 02:00, IG post 02:30 WIB.")
     except Exception as e:
         log.warning("Scheduler gagal: %s", e)
 
@@ -267,6 +303,11 @@ except Exception as e:
     log.warning("rebuild saat boot gagal: %s", e)
 seed_ig()
 rebuild_ig()  # bangun ig_data.json dari snapshot (seed repo) saat boot
+# "ketika deploy harus otomatis fetch all post instagram" — jalankan saat boot bila sesi ada
+# & belum ada data post hari ini (hindari fetch berulang tiap restart). Butuh IG_SESSIONID.
+if os.environ.get("IG_SESSIONID") and not (IG_SNAP / f"posts_{datetime.now(WIB).strftime('%Y-%m-%d')}.csv").exists():
+    log.info("Boot: auto-fetch POST IG (sesi terdeteksi)")
+    threading.Thread(target=run_ig_posts, daemon=True).start()
 start_scheduler()
 
 if __name__ == "__main__":

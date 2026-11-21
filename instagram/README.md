@@ -46,8 +46,10 @@ Per post → **sum/avg/median per member + ER**. Kolom otomatis muncul di leader
 
 - **Profil publik/crawler = 0 field engagement** (terbukti) → wajib sesi login akun **CADANGAN**.
 - pk member diambil publik (crawler) untuk hemat panggilan ber-auth.
-- **LOKAL saja** — IP datacenter/Railway langsung di-flag IG; jadi `ig_posts.py` TIDAK dijalankan di service Railway. Jalankan di mesin lokal, hasil `posts_<tgl>.csv` ikut masuk pipeline saat `aggregate_ig` jalan.
-- **Keamanan:** Claude tak memegang password; cookie di `instagram/.env` (`IG_SESSIONID=`, gitignored). Device instagrapi dipersist di `.ig_settings.json` (gitignored) agar konsisten antar-run.
+- **Otomatis di Railway** (sesuai permintaan): `daily/app.py` menjalankan post-fetch **saat boot** (bila `IG_SESSIONID` di-set & belum ada data hari ini) + **tiap 02:30 WIB** + manual `/refresh_ig_posts?key=`. Gated: tanpa `IG_SESSIONID`, tab IG tetap jalan untuk follower/post-count saja.
+  - ⚠️ **WAJIB `IG_PROXY` (residensial)** — IP Railway=datacenter, IG cepat mem-flag akun cadangan tanpa proxy (sama seperti `TWITTER_PROXY` di fetch X). `IG_POST_MAX` post/member (0=semua).
+  - Bisa juga tetap dijalankan lokal (`python ig_posts.py`); `posts_<tgl>.csv` masuk pipeline via `aggregate_ig.read_posts`.
+- **Keamanan:** Claude tak memegang password; cookie di `instagram/.env` (`IG_SESSIONID=`, gitignored) atau env var Railway. Device instagrapi dipersist di `.ig_settings.json` (gitignored) agar konsisten antar-run.
 
 ```
 pip install instagrapi
