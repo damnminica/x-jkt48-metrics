@@ -23,6 +23,33 @@ def _int(v):
         return None
 
 
+def _float(v):
+    try:
+        return round(float(v), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def read_posts(snap_dir):
+    """Engagement per-post terbaru (posts_<tgl>.csv dari ig_posts.py) → {handle: {...}}, tanggal."""
+    files = sorted(Path(snap_dir).glob("posts_*.csv"))
+    if not files:
+        return {}, None
+    p = files[-1]
+    out = {}
+    with p.open() as f:
+        for r in csv.DictReader(f):
+            h = r.get("ig_username")
+            if not h:
+                continue
+            e = {k: _int(r.get(k)) for k in ("n_posts", "n_reels", "sum_likes", "avg_likes",
+                 "med_likes", "sum_comments", "avg_comments", "avg_views_reel", "sum_views_reel",
+                 "sum_reshares", "sum_shares")}
+            e["er"] = _float(r.get("er"))
+            out[h] = e
+    return out, p.stem.replace("posts_", "")
+
+
 def read_snapshots(snap_dir):
     """-> {date: {handle: row}} + urutan tanggal. row dinormalisasi + 'method'."""
     days = {}
@@ -119,6 +146,19 @@ def build(snap_dir=None, out=None, x_followers_map=None):
     for i, m in enumerate(members, 1):
         m["rank"] = i
 
+    # merge engagement per-post (fase 3) bila ada; flatten key metrik agar sortable di tabel
+    eng, eng_date = read_posts(snap_dir)
+    for m in members:
+        if m["handle"] in eng:
+            e = eng[m["handle"]]
+            m["eng"] = e
+            m["er"] = e.get("er")
+            m["avg_likes"] = e.get("avg_likes")
+            m["avg_comments"] = e.get("avg_comments")
+            m["avg_views"] = e.get("avg_views_reel")
+            m["sum_reshares"] = e.get("sum_reshares")
+            m["sum_shares"] = e.get("sum_shares")
+
     # agregat tim
     teams = {}
     for m in members:
@@ -139,6 +179,7 @@ def build(snap_dir=None, out=None, x_followers_map=None):
         "avg_followers": round(tot_fol / len(members)) if members else 0,
         "u16": ({"followers": hub["followers"], "posts": hub["posts"]} if hub else None),
         "members": members, "teams": teams, "series": series, "has_x": bool(xf),
+        "has_posts": bool(eng), "posts_date": eng_date,
     }
     payload.write_text(json.dumps(data_obj, ensure_ascii=False))
     print(f"{payload.name}: {len(members)} member, {len(dates)} hari ({dates[0]}..{latest}), "

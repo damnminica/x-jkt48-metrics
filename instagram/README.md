@@ -30,8 +30,20 @@ PORT=8010 python app.py       # buka http://localhost:8010
 
 ### Keterbatasan
 - og membulatkan follower jutaan ("2M"), TAPI JSON SSR crawler = **eksak** → fetcher pakai yang eksak. Posts dari og (eksak).
-- Metrik per-post (ER, likes, views Reels) butuh jalur ber-login (akun cadangan) — belum dibangun.
 - Delta follower muncul setelah ≥2 snapshot eksak (mulai 2026-11-22). Batas metode og(21)→eksak(22) di-skip agar tak ada lonjakan palsu.
+
+## Fase 3 — metrik PER-POST (engagement) — `ig_posts.py`
+Likes, komentar, **views Reel**, **repost**, **share** per post → **sum/avg per member + ER**. Kolom otomatis muncul di leaderboard IG saat datanya ada (`has_posts`).
+- **Butuh sesi login akun CADANGAN** (bukan pribadi). Profil publik/crawler TIDAK memuat engagement (terbukti: 0 field) → wajib feed API ber-auth.
+- Jalur: `www.instagram.com/api/v1/feed/user/<pk>/` (pk diambil publik via crawler) + cookie `sessionid`. Bash/requests TIDAK diblokir (beda dari browser-pane). Likes/komentar/views Reel ANDAL; repost/share best-effort (field IG baru, diparse bila ada).
+- **Keamanan:** Claude TIDAK memasukkan password IG. Kamu sediakan cookie sendiri:
+  ```
+  export IG_SESSIONID='...'        # devtools akun cadangan → Cookies → sessionid
+  python ig_posts.py --max 36      # → snapshots/posts_<today>.csv
+  python aggregate_ig.py           # merge ke ig_data.json
+  ```
+  `python ig_posts.py --sample` menguji parser tanpa login.
+- **Risiko:** ToS IG melarang scraping otomatis; pakai akun khusus, pace lambat (default 2.5s/post), bisa kena rate-limit/flag. Status: **engine + pipeline + kolom dashboard SIAP & tervalidasi** (parser + render pakai data contoh); eksekusi live tinggal sesi login.
 
 ## Pola username (PENTING untuk scraper — jangan template buta)
 Tidak ada satu pola. Ditemukan ≥4 varian:
