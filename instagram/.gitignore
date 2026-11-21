@@ -1,3 +1,4 @@
 ig_data.json
 __pycache__/
 .env
+.ig_settings.json

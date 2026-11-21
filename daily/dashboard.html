@@ -765,7 +765,7 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
   };
   function render(){
     const d=igD;
-    const EC=d.has_posts?`<th data-k="er">ER%</th><th data-k="avg_likes">Avg Like</th><th data-k="avg_comments">Avg Kom</th><th data-k="sum_reshares">Repost</th><th data-k="sum_shares">Share</th>`:"";
+    const EC=d.has_posts?`<th data-k="er">ER%</th><th data-k="avg_likes">Avg Like</th><th data-k="avg_comments">Avg Kom</th><th data-k="avg_views">Views Reel</th>`:"";
     const tiles=[
       [fn(d.total_followers),"Total Follower IG",d.n_members+" akun member"],
       [fn(d.avg_followers),"Rata-rata / Member",""],
@@ -793,7 +793,7 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
           <th data-k="following">Following</th><th data-k="x_fol">X</th><th data-k="ig_x_ratio">IG/X</th>${EC}
         </tr></thead><tbody></tbody></table></div></div>
       <p class="foot">Follower/post via crawler publik · ${d.dates.length} snapshot (${d.dates[0]} – ${d.latest_date}).
-        ${d.has_posts?`Engagement per-post (ER, likes, komentar, repost, share) via sesi login · update ${esc(d.posts_date||"")}.`:"Likes/komentar/repost/share/views Reels butuh jalur login akun cadangan (fase 3 — siap, tinggal sesi)."}</p>`;
+        ${d.has_posts?`Engagement per-post (ER, likes, komentar, views Reel) via instagrapi/sesi login · update ${esc(d.posts_date||"")}. Repost & share tak tersedia di API IG.`:"Engagement per-post (ER, likes, komentar, views Reel) via jalur login akun cadangan — belum ditarik."}</p>`;
     charts(d); table(d.members);
     $("igLbNote").textContent=d.members.some(m=>m.d_fol!=null)
       ? "Δ = perubahan follower sejak snapshot sebelumnya." : "Δ follower muncul setelah ≥2 snapshot eksak.";
@@ -838,7 +838,7 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
       <td>${fn(m.following)}</td>
       <td>${m.x_fol?fn(m.x_fol):'–'}</td>
       <td>${m.ig_x_ratio?m.ig_x_ratio+'×':'–'}</td>
-      ${igD.has_posts?`<td>${m.er!=null?m.er+'%':'–'}</td><td>${m.avg_likes!=null?fn(m.avg_likes):'–'}</td><td>${m.avg_comments!=null?fn(m.avg_comments):'–'}</td><td>${m.sum_reshares!=null?fn(m.sum_reshares):'–'}</td><td>${m.sum_shares!=null?fn(m.sum_shares):'–'}</td>`:""}
+      ${igD.has_posts?`<td>${m.er!=null?m.er+'%':'–'}</td><td>${m.avg_likes!=null?fn(m.avg_likes):'–'}</td><td>${m.avg_comments!=null?fn(m.avg_comments):'–'}</td><td>${m.avg_views!=null?fn(m.avg_views):'–'}</td>`:""}
     </tr>`).join("");
   }
 })();

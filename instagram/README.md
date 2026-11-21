@@ -33,17 +33,31 @@ PORT=8010 python app.py       # buka http://localhost:8010
 - Delta follower muncul setelah ≥2 snapshot eksak (mulai 2026-11-22). Batas metode og(21)→eksak(22) di-skip agar tak ada lonjakan palsu.
 
 ## Fase 3 — metrik PER-POST (engagement) — `ig_posts.py`
-Likes, komentar, **views Reel**, **repost**, **share** per post → **sum/avg per member + ER**. Kolom otomatis muncul di leaderboard IG saat datanya ada (`has_posts`).
-- **Butuh sesi login akun CADANGAN** (bukan pribadi). Profil publik/crawler TIDAK memuat engagement (terbukti: 0 field) → wajib feed API ber-auth.
-- Jalur: `www.instagram.com/api/v1/feed/user/<pk>/` (pk diambil publik via crawler) + cookie `sessionid`. Bash/requests TIDAK diblokir (beda dari browser-pane). Likes/komentar/views Reel ANDAL; repost/share best-effort (field IG baru, diparse bila ada).
-- **Keamanan:** Claude TIDAK memasukkan password IG. Kamu sediakan cookie sendiri:
-  ```
-  export IG_SESSIONID='...'        # devtools akun cadangan → Cookies → sessionid
-  python ig_posts.py --max 36      # → snapshots/posts_<today>.csv
-  python aggregate_ig.py           # merge ke ig_data.json
-  ```
-  `python ig_posts.py --sample` menguji parser tanpa login.
-- **Risiko:** ToS IG melarang scraping otomatis; pakai akun khusus, pace lambat (default 2.5s/post), bisa kena rate-limit/flag. Status: **engine + pipeline + kolom dashboard SIAP & tervalidasi** (parser + render pakai data contoh); eksekusi live tinggal sesi login.
+Per post → **sum/avg/median per member + ER**. Kolom otomatis muncul di leaderboard IG saat datanya ada (`has_posts`).
+
+**Engine: [instagrapi](https://github.com/subzeroid/instagrapi)** (login via `sessionid`; menangani device-id/signing yang bikin `requests` mentah kena 403). Dikonfirmasi live.
+
+| Metrik | Bisa? | Catatan |
+|---|---|---|
+| likes, komentar | ✅ | `like_count`, `comment_count` per media |
+| views Reel | ✅ | `play_count` (hanya clips/Reel) |
+| **repost (🔁)** | ❌ | **tak ada di API** (feed & media_info dicek: tak ada `reshare_count`) |
+| **share (✈️)** | ❌ | **tak ada di API** (owner-only Insights/UI; kolom tetap ada = None) |
+
+- **Profil publik/crawler = 0 field engagement** (terbukti) → wajib sesi login akun **CADANGAN**.
+- pk member diambil publik (crawler) untuk hemat panggilan ber-auth.
+- **LOKAL saja** — IP datacenter/Railway langsung di-flag IG; jadi `ig_posts.py` TIDAK dijalankan di service Railway. Jalankan di mesin lokal, hasil `posts_<tgl>.csv` ikut masuk pipeline saat `aggregate_ig` jalan.
+- **Keamanan:** Claude tak memegang password; cookie di `instagram/.env` (`IG_SESSIONID=`, gitignored). Device instagrapi dipersist di `.ig_settings.json` (gitignored) agar konsisten antar-run.
+
+```
+pip install instagrapi
+# isi instagram/.env: IG_SESSIONID=...  (devtools akun cadangan → Cookies → sessionid)
+set -a; . ./.env; set +a
+python ig_posts.py --max 24        # → snapshots/posts_<today>.csv
+python aggregate_ig.py             # merge engagement → ig_data.json
+python ig_posts.py --sample        # uji parser tanpa login
+```
+- **Risiko:** ToS IG melarang scraping otomatis; akun khusus, tempo pelan (delay 2–5s + pause 3s/member), bisa kena rate-limit/flag.
 
 ## Pola username (PENTING untuk scraper — jangan template buta)
 Tidak ada satu pola. Ditemukan ≥4 varian:
