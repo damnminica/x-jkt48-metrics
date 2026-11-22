@@ -153,7 +153,8 @@ def load_targets(only=None):
 MARKER = ".ig_backfilled"
 
 
-def run(mode="rolling", only=None, out_dir=None, backfill_max=0, refetch_days=None, pause=3.0):
+def run(mode="rolling", only=None, out_dir=None, backfill_max=0, refetch_days=None, pause=3.0,
+        on_member=None):
     cl = make_client()
     if cl is None:
         sys.exit("IG_SESSIONID belum di-set. Isi instagram/.env lalu: set -a; . ./.env; set +a")
@@ -190,6 +191,12 @@ def run(mode="rolling", only=None, out_dir=None, backfill_max=0, refetch_days=No
             print(f"  {i}/{len(targets)} {t['ig_username']:<18} {mode}: {cnt} post", flush=True)
         except Exception as e:  # noqa: BLE001
             print(f"  {i}/{len(targets)} {t['ig_username']:<18} GAGAL: {str(e)[:70]}", flush=True)
+        save_store(out_dir, store)      # simpan tiap member → data langsung tersedia (live)
+        if on_member:
+            try:
+                on_member(i, t["ig_username"])  # mis. rebuild ig_data.json → muncul di dashboard
+            except Exception:  # noqa: BLE001
+                pass
         time.sleep(pause)
     save_store(out_dir, store)
     if mode == "backfill":

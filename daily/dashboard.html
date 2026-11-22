@@ -855,6 +855,15 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
       ${igD.has_posts?`<td>${m.er!=null?m.er+'%':'–'}</td><td>${m.avg_likes!=null?fn(m.avg_likes):'–'}</td><td>${m.avg_comments!=null?fn(m.avg_comments):'–'}</td><td>${m.avg_views!=null?fn(m.avg_views):'–'}</td>`:""}
     </tr>`).join("");
   }
+  // auto-refresh ringan: saat tab IG tampil & data berubah (backfill per-member) → render ulang
+  setInterval(function(){
+    if(!igD) return;
+    const vi=document.getElementById("igapp");
+    if(!vi || vi.style.display==="none" || document.hidden) return;
+    fetch("ig_data.json?"+Date.now()).then(r=>r.json()).then(d=>{
+      if(d && d.generated!==igD.generated){ igD=d; render(); }
+    }).catch(function(){});
+  }, 45000);
 })();
 /* ===== Top-nav X / Instagram ===== */
 (function(){

@@ -165,12 +165,17 @@ def seed_ig():
         for p in IG_REPO_SNAP.glob("ig_*.csv"):
             shutil.copy(p, IG_SNAP / p.name)
         log.info("Seed %d snapshot follower IG dari repo", len(list(IG_SNAP.glob("ig_*.csv"))))
-    # seed store post + marker backfill (backfill berat dilakukan LOKAL; Railway cukup rolling)
-    for name in ("posts_store.csv", ".ig_backfilled"):
-        src = IG_REPO_SNAP / name
-        if src.exists() and not (IG_SNAP / name).exists():
-            shutil.copy(src, IG_SNAP / name)
-            log.info("Seed %s dari repo", name)
+    # store post: bila Railway TIDAK self-fetch (IG_SESSIONID kosong), repo = sumber kebenaran
+    # → selalu sinkron dari repo tiap boot (update engagement lokal yang di-commit ikut nyala).
+    # Bila self-fetch (IG_SESSIONID di-set), seed hanya bila belum ada (jangan timpa hasil Railway).
+    repo_store = IG_REPO_SNAP / "posts_store.csv"
+    if repo_store.exists():
+        self_fetch = bool(os.environ.get("IG_SESSIONID"))
+        for name in ("posts_store.csv", ".ig_backfilled"):
+            src = IG_REPO_SNAP / name
+            if src.exists() and (not self_fetch or not (IG_SNAP / name).exists()):
+                shutil.copy(src, IG_SNAP / name)
+        log.info("Sinkron store post dari repo (self_fetch=%s)", self_fetch)
 
 
 def _x_follower_map():
@@ -225,8 +230,17 @@ def run_ig_posts():
     try:
         mode = "rolling" if (IG_SNAP / ig_posts.MARKER).exists() else "backfill"
         log.info("Mulai tarik POST IG (mode=%s, proxy=%s)", mode, bool(os.environ.get("IG_PROXY")))
+        import time as _t
+        _last = [0.0]
+
+        def _on_member(i, h):  # rebuild ig_data.json tiap member → langsung muncul di dashboard
+            if _t.monotonic() - _last[0] < 4:
+                return
+            rebuild_ig()
+            _last[0] = _t.monotonic()
+
         ig_posts.run(mode=mode, out_dir=IG_SNAP, backfill_max=IG_BACKFILL_MAX,
-                     refetch_days=IG_REFETCH_DAYS)
+                     refetch_days=IG_REFETCH_DAYS, on_member=_on_member)
         rebuild_ig()
         log.info("Selesai tarik POST IG (mode=%s)", mode)
     except Exception as e:  # noqa: BLE001
@@ -295,10 +309,10 @@ def start_scheduler():
         from apscheduler.schedulers.background import BackgroundScheduler
         sched = BackgroundScheduler(timezone="Asia/Jakarta")
         sched.add_job(run_fetch, "cron", hour=0, minute=0, id="daily", misfire_grace_time=3600)
-        sched.add_job(run_ig_fetch, "cron", hour=2, minute=0, id="ig_daily", misfire_grace_time=3600, coalesce=True)
-        sched.add_job(run_ig_posts, "cron", hour=2, minute=30, id="ig_posts_daily", misfire_grace_time=3600, coalesce=True)
+        sched.add_job(run_ig_fetch, "cron", hour=0, minute=0, id="ig_daily", misfire_grace_time=3600, coalesce=True)
+        sched.add_job(run_ig_posts, "cron", hour=0, minute=10, id="ig_posts_daily", misfire_grace_time=3600, coalesce=True)
         sched.start()
-        log.info("Scheduler aktif: X 00:00, IG follower 02:00, IG post 02:30 WIB.")
+        log.info("Scheduler aktif: X 00:00, IG follower 00:00, IG post 00:10 WIB.")
     except Exception as e:
         log.warning("Scheduler gagal: %s", e)
 
