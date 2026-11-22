@@ -51,14 +51,20 @@ Per post → **sum/avg/median per member + ER**. Kolom otomatis muncul di leader
   - Bisa juga tetap dijalankan lokal (`python ig_posts.py`); `posts_<tgl>.csv` masuk pipeline via `aggregate_ig.read_posts`.
 - **Keamanan:** Claude tak memegang password; cookie di `instagram/.env` (`IG_SESSIONID=`, gitignored) atau env var Railway. Device instagrapi dipersist di `.ig_settings.json` (gitignored) agar konsisten antar-run.
 
+**Model store + maturity (penting):** metrik IG butuh waktu "matang" (feed ~2–3 hari, Reels ~2–3 minggu). Jadi:
+- Post disimpan per-post di `snapshots/posts_store.csv` (by shortcode), **upsert** tiap run → nilai ter-update sampai matang. Marker `.ig_backfilled` menandai backfill sudah jalan.
+- **`--backfill`** (SEKALI): tarik semua post → isi store historis. **rolling** (default): hanya re-fetch post < `IG_REFETCH_DAYS` (14) → upsert (hemat panggilan).
+- Agregat ER pakai post **matang ≥`IG_MATURE_DAYS`(3) hari** dalam **`IG_RECENCY_DAYS`(30) hari** terakhir. Dashboard punya kartu **kurva pematangan** (like/views per 1k follower vs umur post).
+
 ```
 pip install instagrapi
 # isi instagram/.env: IG_SESSIONID=...  (devtools akun cadangan → Cookies → sessionid)
 set -a; . ./.env; set +a
-python ig_posts.py --max 24        # → snapshots/posts_<today>.csv
-python aggregate_ig.py             # merge engagement → ig_data.json
-python ig_posts.py --sample        # uji parser tanpa login
+python ig_posts.py --backfill      # SEKALI: semua post → snapshots/posts_store.csv
+python ig_posts.py                 # rolling harian: post 14 hari terakhir → upsert
+python aggregate_ig.py             # agregat matang-terkini + maturity → ig_data.json
 ```
+Di Railway: backfill jalan otomatis saat boot (bila `IG_SESSIONID` di-set & belum ada marker), lalu rolling tiap 02:30 WIB. **Wajib `IG_PROXY`** (IP datacenter) — atau bound run pertama via `IG_BACKFILL_MAX`.
 - **Risiko:** ToS IG melarang scraping otomatis; akun khusus, tempo pelan (delay 2–5s + pause 3s/member), bisa kena rate-limit/flag.
 
 ## Pola username (PENTING untuk scraper — jangan template buta)

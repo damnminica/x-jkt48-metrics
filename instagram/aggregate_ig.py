@@ -7,6 +7,9 @@
 """
 import csv
 import json
+import os
+import statistics
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -14,6 +17,10 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 WIB = timezone(timedelta(hours=7))
 TEAM_COLOR = {"Love": "#f43f5e", "Dream": "#38bdf8", "Passion": "#a855f7", "Trainee": "#94a3b8"}
+MATURE_DAYS = int(os.environ.get("IG_MATURE_DAYS", "3"))     # post < ini dianggap belum matang
+RECENCY_DAYS = int(os.environ.get("IG_RECENCY_DAYS", "30"))  # jendela post utk agregat "terkini"
+# bucket umur (hari) utk kurva pematangan
+AGE_BUCKETS = [(0, 1), (1, 3), (3, 7), (7, 14), (14, 30), (30, 90)]
 
 
 def _int(v):
@@ -30,24 +37,74 @@ def _float(v):
         return None
 
 
-def read_posts(snap_dir):
-    """Engagement per-post terbaru (posts_<tgl>.csv dari ig_posts.py) → {handle: {...}}, tanggal."""
-    files = sorted(Path(snap_dir).glob("posts_*.csv"))
-    if not files:
-        return {}, None
-    p = files[-1]
-    out = {}
+def read_post_store(snap_dir):
+    """Baca posts_store.csv (per-post, by shortcode) → list post dgn umur. [] bila belum ada."""
+    p = Path(snap_dir) / "posts_store.csv"
+    if not p.exists():
+        return [], None
+    now = int(time.time())
+    posts, latest = [], 0
     with p.open() as f:
         for r in csv.DictReader(f):
-            h = r.get("ig_username")
-            if not h:
+            ta = _int(r.get("taken_at"))
+            if ta is None:
                 continue
-            e = {k: _int(r.get(k)) for k in ("n_posts", "n_reels", "sum_likes", "avg_likes",
-                 "med_likes", "sum_comments", "avg_comments", "avg_views_reel", "sum_views_reel",
-                 "sum_reshares", "sum_shares")}
-            e["er"] = _float(r.get("er"))
-            out[h] = e
-    return out, p.stem.replace("posts_", "")
+            latest = max(latest, _int(r.get("last_fetched")) or 0)
+            posts.append({
+                "handle": r.get("handle"), "taken_at": ta, "age_d": (now - ta) / 86400.0,
+                "is_reel": str(r.get("is_reel")) in ("1", "True", "true"),
+                "likes": _int(r.get("likes")), "comments": _int(r.get("comments")),
+                "views": _int(r.get("views")),
+            })
+    date = datetime.fromtimestamp(latest, WIB).strftime("%Y-%m-%d") if latest else None
+    return posts, date
+
+
+def agg_engagement(posts):
+    """Agregat per handle: post MATANG (umur≥MATURE_DAYS) dalam RECENCY_DAYS terakhir."""
+    by = {}
+    for p in posts:
+        if p["age_d"] < MATURE_DAYS or p["age_d"] > RECENCY_DAYS:
+            continue
+        by.setdefault(p["handle"], []).append(p)
+    out = {}
+    for h, ps in by.items():
+        lk = [x["likes"] for x in ps if isinstance(x["likes"], int)]
+        cm = [x["comments"] for x in ps if isinstance(x["comments"], int)]
+        vw = [x["views"] for x in ps if x["is_reel"] and isinstance(x["views"], int)]
+        if not lk:
+            continue
+        out[h] = {
+            "n_posts": len(ps), "n_reels": sum(1 for x in ps if x["is_reel"]),
+            "avg_likes": round(statistics.mean(lk)), "med_likes": round(statistics.median(lk)),
+            "avg_comments": round(statistics.mean(cm)) if cm else None,
+            "med_comments": round(statistics.median(cm)) if cm else None,
+            "avg_views_reel": round(statistics.mean(vw)) if vw else None,
+        }
+    return out
+
+
+def maturity_curve(posts, folmap):
+    """Kurva pematangan JKT48: per bucket umur → median like-per-1k-follower + median views Reel.
+    Normalisasi per follower supaya ukuran member tak mendominasi kurva."""
+    out = []
+    for lo, hi in AGE_BUCKETS:
+        lr, vr = [], []
+        for p in posts:
+            if not (lo <= p["age_d"] < hi):
+                continue
+            fol = folmap.get(p["handle"])
+            if isinstance(p["likes"], int) and fol:
+                lr.append(p["likes"] / fol * 1000)
+            if p["is_reel"] and isinstance(p["views"], int) and fol:
+                vr.append(p["views"] / fol * 1000)
+        out.append({
+            "lo": lo, "hi": hi, "label": f"{lo}-{hi}hr",
+            "n": len(lr),
+            "med_like_per1k": round(statistics.median(lr), 1) if lr else None,
+            "med_view_per1k": round(statistics.median(vr)) if vr else None,
+        })
+    return out
 
 
 def read_snapshots(snap_dir):
@@ -146,18 +203,21 @@ def build(snap_dir=None, out=None, x_followers_map=None):
     for i, m in enumerate(members, 1):
         m["rank"] = i
 
-    # merge engagement per-post (fase 3) bila ada; flatten key metrik agar sortable di tabel
-    eng, eng_date = read_posts(snap_dir)
+    # engagement per-post (fase 3): dari posts_store, agregat MATANG & terkini + kurva maturity
+    posts_all, eng_date = read_post_store(snap_dir)
+    eng = agg_engagement(posts_all)
+    folmap = {m["handle"]: m["followers"] for m in members if m.get("followers")}
     for m in members:
         if m["handle"] in eng:
             e = eng[m["handle"]]
             m["eng"] = e
-            m["er"] = e.get("er")
             m["avg_likes"] = e.get("avg_likes")
             m["avg_comments"] = e.get("avg_comments")
             m["avg_views"] = e.get("avg_views_reel")
-            m["sum_reshares"] = e.get("sum_reshares")
-            m["sum_shares"] = e.get("sum_shares")
+            fol = m.get("followers")
+            if fol and e.get("avg_likes") is not None:
+                m["er"] = round((e["avg_likes"] + (e.get("avg_comments") or 0)) / fol * 100, 2)
+    maturity = maturity_curve(posts_all, folmap) if posts_all else []
 
     # agregat tim
     teams = {}
@@ -180,6 +240,8 @@ def build(snap_dir=None, out=None, x_followers_map=None):
         "u16": ({"followers": hub["followers"], "posts": hub["posts"]} if hub else None),
         "members": members, "teams": teams, "series": series, "has_x": bool(xf),
         "has_posts": bool(eng), "posts_date": eng_date,
+        "maturity": maturity, "mature_days": MATURE_DAYS, "recency_days": RECENCY_DAYS,
+        "n_posts_store": len(posts_all),
     }
     payload.write_text(json.dumps(data_obj, ensure_ascii=False))
     print(f"{payload.name}: {len(members)} member, {len(dates)} hari ({dates[0]}..{latest}), "

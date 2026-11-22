@@ -785,6 +785,10 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
       <h2>Instagram vs X — Follower per Member</h2>
       <div class="card"><p class="note">Garis putus = IG sama dengan X. Di atas garis = basis IG lebih besar dari X. Angka tooltip = rasio IG/X.</p>
         <div class="chart-box" style="height:460px"><canvas id="igCross"></canvas></div></div>
+      ${d.has_posts&&d.maturity&&d.maturity.some(b=>b.med_like_per1k!=null)?`
+      <h2>Pematangan Metrik — kasus JKT48</h2>
+      <div class="card"><p class="note">Median like & views Reel per 1.000 follower menurut umur post (dinormalisasi ukuran member). Memperlihatkan seberapa cepat post JKT48 "matang". Dari 1 snapshot (proxy umur) — makin presisi seiring rolling harian. Agregat ER pakai post matang ≥${d.mature_days} hari, ${d.recency_days} hari terakhir.</p>
+        <div class="chart-box"><canvas id="igMatur"></canvas></div></div>`:""}
       <h2>Leaderboard</h2>
       <div class="card"><p class="note" id="igLbNote"></p>
         <div class="scroll" style="max-height:560px"><table id="igTbl"><thead><tr>
@@ -823,6 +827,16 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
         tooltip:{callbacks:{label:c=>c.raw&&c.raw.n?`${c.raw.n}: IG ${fn(c.raw.y)} vs X ${fn(c.raw.x)} (${c.raw.r}×)`:""}}},
         scales:{x:{title:{display:true,text:"Follower X",color:col("--mut")},ticks:{color:col("--mut")},grid:{color:col("--line")}},
                 y:{title:{display:true,text:"Follower Instagram",color:col("--mut")},ticks:{color:col("--mut")},grid:{color:col("--line")}}}}});
+    }
+    if(d.maturity&&d.maturity.some(b=>b.med_like_per1k!=null)){
+      const mb=d.maturity;
+      mk("igMatur",{data:{labels:mb.map(b=>b.label),datasets:[
+        {type:"line",label:"Like / 1k follower (median)",data:mb.map(b=>b.med_like_per1k),borderColor:col("--accent"),backgroundColor:"transparent",tension:.3,pointRadius:3,yAxisID:"y"},
+        {type:"line",label:"Views Reel / 1k (median)",data:mb.map(b=>b.med_view_per1k),borderColor:col("--accent2"),backgroundColor:"transparent",tension:.3,pointRadius:3,yAxisID:"y2"}
+      ]},options:{...base(),plugins:{legend:{position:"bottom",labels:{color:col("--mut"),boxWidth:12}}},
+        scales:{x:{grid:{color:col("--line")},ticks:{color:col("--mut")},title:{display:true,text:"umur post",color:col("--mut")}},
+          y:{position:"left",grid:{color:col("--line")},ticks:{color:col("--mut")},title:{display:true,text:"like/1k",color:col("--mut")}},
+          y2:{position:"right",grid:{display:false},ticks:{color:col("--mut")},title:{display:true,text:"views/1k",color:col("--mut")}}}}});
     }
   }
   function table(rows){

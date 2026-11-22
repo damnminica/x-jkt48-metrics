@@ -1,28 +1,29 @@
-"""Fase 3 — metrik PER-POST Instagram → sum/agregat per member.
+"""Fase 3 — metrik PER-POST Instagram → store per-post + maturity model.
 
-Pakai instagrapi + sesi login akun CADANGAN (bukan akun pribadi!). Robust: library
-menangani device-id/signing yang bikin requests mentah kena 403.
+Model: simpan tiap post (by shortcode) dgn likes/komentar/views + taken_at + last_fetched,
+UPSERT tiap run → nilai post ter-update sampai "matang". Agregat per member dihitung dari
+store (lihat aggregate_ig): post MATANG (umur ≥ IG_MATURE_DAYS) dalam IG_RECENCY_DAYS terakhir.
 
-Yang BISA ditarik per post (scalable, 1 panggilan feed/member + paginasi):
-  likes ✓   komentar ✓   views Reel (play_count) ✓
-TIDAK bisa (dikonfirmasi tak ada di API feed maupun media_info):
-  repost (🔁) & share (✈️) — angka itu owner-only/UI; kolomnya tetap ada tapi None.
+Dua mode:
+  --backfill  : SEKALI di awal — tarik SEMUA post tiap member (atau --max N) → isi store historis.
+  (default)   : rolling — tarik post < IG_REFETCH_DAYS hari → upsert (hemat panggilan).
 
-Siapkan cookie (sekali):
-  instagram/.env →  IG_SESSIONID=...   (devtools akun cadangan → Cookies → sessionid)
-Jalan (LOKAL saja — IP datacenter/Railway langsung di-flag IG):
+Engine: instagrapi (github.com/subzeroid/instagrapi), login via sessionid akun CADANGAN.
+Hanya likes/komentar/views Reel (repost & share TIDAK ada di API IG).
+
+  instagram/.env → IG_SESSIONID=...   (devtools akun cadangan → Cookies → sessionid)
+  IG_PROXY=...  (WAJIB bila dari IP datacenter/Railway)
   set -a; . ./.env; set +a
-  python ig_posts.py --max 36                 # semua member → snapshots/posts_<today>.csv
-  python ig_posts.py --only jkt48.christy      # uji 1 member
-  python ig_posts.py --sample                  # uji parser tanpa login
+  python ig_posts.py --backfill        # sekali: semua post → snapshots/posts_store.csv
+  python ig_posts.py                   # rolling: post 14 hari terakhir → upsert
+  python ig_posts.py --sample          # uji parser tanpa login
 
-ToS IG melarang scraping otomatis — akun khusus, tempo pelan, sadar risiko rate-limit/flag.
+ToS IG melarang scraping otomatis — akun khusus, tempo pelan, sadar risiko.
 """
 import argparse
 import csv
 import json
 import os
-import statistics
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -34,6 +35,11 @@ import ig_fetch  # resolve pk member via crawler publik (hemat panggilan ber-aut
 HERE = Path(__file__).resolve().parent
 WIB = timezone(timedelta(hours=7))
 SETTINGS = HERE / ".ig_settings.json"  # device instagrapi (gitignored) → konsisten antar-run
+REFETCH_DAYS = int(os.environ.get("IG_REFETCH_DAYS", "14"))
+ROLLING_SCAN = 40  # berapa post terbaru dipindai saat rolling (cukup utk menutup window)
+
+STORE_COLS = ["code", "handle", "panggilan", "tim", "taken_at", "media_type", "is_reel",
+              "likes", "comments", "views", "first_seen", "last_fetched"]
 
 
 def make_client():
@@ -45,8 +51,8 @@ def make_client():
     except ImportError:
         sys.exit("pip install instagrapi")
     cl = Client()
-    cl.delay_range = [2, 5]  # jeda acak antar-panggilan (sopan ke IG)
-    proxy = os.environ.get("IG_PROXY", "").strip()  # WAJIB bila jalan dari IP datacenter (Railway)
+    cl.delay_range = [2, 5]
+    proxy = os.environ.get("IG_PROXY", "").strip()  # WAJIB bila IP datacenter (Railway)
     if proxy:
         try:
             cl.set_proxy(proxy)
@@ -79,32 +85,49 @@ def parse_media(m):
         "code": getattr(m, "code", None),
         "taken_at": int(ta.timestamp()) if ta else None,
         "media_type": getattr(m, "media_type", None),
-        "is_reel": is_reel,
+        "is_reel": 1 if is_reel else 0,
         "likes": int(lk) if isinstance(lk, int) and lk >= 0 else None,
         "comments": int(cm) if isinstance(cm, int) and cm >= 0 else None,
         "views": int(views) if isinstance(views, int) and views > 0 else None,
-        "reshares": None,  # tak tersedia di API
-        "shares": None,    # tak tersedia di API
     }
 
 
-def summarize(handle, posts, followers=None):
-    def nz(key):
-        return [p[key] for p in posts if isinstance(p.get(key), int)]
-    likes, comments = nz("likes"), nz("comments")
-    views = [p["views"] for p in posts if p.get("is_reel") and isinstance(p.get("views"), int)]
-    reels = sum(1 for p in posts if p.get("is_reel"))
-    avg_eng = (statistics.mean(likes) + statistics.mean(comments)) if likes and comments else None
-    er = round(avg_eng / followers * 100, 2) if avg_eng and followers else None
-    return {
-        "handle": handle, "n_posts": len(posts), "n_reels": reels,
-        "sum_likes": sum(likes) or None, "avg_likes": round(statistics.mean(likes)) if likes else None,
-        "med_likes": round(statistics.median(likes)) if likes else None,
-        "sum_comments": sum(comments) or None,
-        "avg_comments": round(statistics.mean(comments)) if comments else None,
-        "avg_views_reel": round(statistics.mean(views)) if views else None,
-        "sum_views_reel": sum(views) or None,
-        "sum_reshares": None, "sum_shares": None, "er": er,
+def store_path(out_dir):
+    return Path(out_dir) / "posts_store.csv"
+
+
+def load_store(out_dir):
+    p = store_path(out_dir)
+    store = {}
+    if p.exists():
+        with p.open() as f:
+            for r in csv.DictReader(f):
+                store[r["code"]] = r
+    return store
+
+
+def save_store(out_dir, store):
+    p = store_path(out_dir)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    rows = sorted(store.values(), key=lambda r: -(int(r["taken_at"]) if r.get("taken_at") else 0))
+    with p.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=STORE_COLS)
+        w.writeheader()
+        w.writerows(rows)
+
+
+def upsert(store, target, p, now):
+    """Masukkan/update satu post ke store (preserve first_seen)."""
+    code = p.get("code")
+    if not code:
+        return
+    cur = store.get(code, {})
+    store[code] = {
+        "code": code, "handle": target["ig_username"], "panggilan": target["panggilan"],
+        "tim": target["tim"], "taken_at": p.get("taken_at"), "media_type": p.get("media_type"),
+        "is_reel": p.get("is_reel"),
+        "likes": p.get("likes"), "comments": p.get("comments"), "views": p.get("views"),
+        "first_seen": cur.get("first_seen") or now, "last_fetched": now,
     }
 
 
@@ -123,86 +146,81 @@ def load_targets(only=None):
             continue
         seen.add(u)
         nama, tim = meta.get(m["panggilan"], (m.get("nama", ""), m.get("tim", "Trainee")))
-        out.append({"panggilan": m["panggilan"], "nama": nama, "tim": tim,
-                    "ig_username": u, "followers": m.get("followers")})
+        out.append({"panggilan": m["panggilan"], "nama": nama, "tim": tim, "ig_username": u})
     return out
 
 
-COLS = ["date", "panggilan", "nama", "tim", "ig_username", "n_posts", "n_reels",
-        "sum_likes", "avg_likes", "med_likes", "sum_comments", "avg_comments",
-        "avg_views_reel", "sum_views_reel", "sum_reshares", "sum_shares", "er"]
+MARKER = ".ig_backfilled"
 
 
-def run(date=None, only=None, out_dir=None, max_posts=36, pause=3.0):
+def run(mode="rolling", only=None, out_dir=None, backfill_max=0, refetch_days=None, pause=3.0):
     cl = make_client()
     if cl is None:
         sys.exit("IG_SESSIONID belum di-set. Isi instagram/.env lalu: set -a; . ./.env; set +a")
     print("login OK sebagai user_id:", cl.user_id)
-    date = date or datetime.now(WIB).strftime("%Y-%m-%d")
     out_dir = Path(out_dir) if out_dir else (HERE / "snapshots")
     out_dir.mkdir(parents=True, exist_ok=True)
+    refetch_days = refetch_days if refetch_days is not None else REFETCH_DAYS
     only = set(only.split(",")) if only else None
     targets = load_targets(only)
+    store = load_store(out_dir)
     pub = __import__("requests").Session()
-    rows, ok = [], 0
+    now = int(time.time())
+    cutoff = now - refetch_days * 86400
+    new, upd = 0, 0
     for i, t in enumerate(targets, 1):
         try:
-            pk = (ig_fetch.fetch_one(t["ig_username"], pub, pause=0.5) or {}).get("pk")
+            pk = (ig_fetch.fetch_one(t["ig_username"], pub, pause=0.4) or {}).get("pk")
             if not pk:
                 pk = cl.user_id_from_username(t["ig_username"])
-            amount = max_posts if max_posts and max_posts > 0 else 0  # 0 = SEMUA post
+            amount = (backfill_max if backfill_max and backfill_max > 0 else 0) if mode == "backfill" else ROLLING_SCAN
             medias = cl.user_medias_v1(int(pk), amount=amount)
-            posts = [parse_media(m) for m in medias]
+            cnt = 0
+            for m in medias:
+                p = parse_media(m)
+                if mode != "backfill" and p.get("taken_at") and p["taken_at"] < cutoff:
+                    break  # newest-first → sisanya lebih tua dari window
+                before = p["code"] in store
+                upsert(store, t, p, now)
+                cnt += 1
+                if before:
+                    upd += 1
+                else:
+                    new += 1
+            print(f"  {i}/{len(targets)} {t['ig_username']:<18} {mode}: {cnt} post", flush=True)
         except Exception as e:  # noqa: BLE001
             print(f"  {i}/{len(targets)} {t['ig_username']:<18} GAGAL: {str(e)[:70]}", flush=True)
-            posts = []
-        summ = summarize(t["ig_username"], posts, t.get("followers"))
-        if summ["n_posts"]:
-            ok += 1
-        rows.append([date, t["panggilan"], t["nama"], t["tim"], t["ig_username"],
-                     summ["n_posts"], summ["n_reels"], summ["sum_likes"], summ["avg_likes"],
-                     summ["med_likes"], summ["sum_comments"], summ["avg_comments"],
-                     summ["avg_views_reel"], summ["sum_views_reel"], summ["sum_reshares"],
-                     summ["sum_shares"], summ["er"]])
-        print(f"  {i}/{len(targets)} {t['ig_username']:<18} posts={summ['n_posts']} "
-              f"avgL={summ['avg_likes']} avgC={summ['avg_comments']} "
-              f"viewsReel={summ['avg_views_reel']} ER={summ['er']}", flush=True)
         time.sleep(pause)
-    path = out_dir / f"posts_{date}.csv"
-    with path.open("w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(COLS)
-        w.writerows(rows)
-    print(f"\nOK {ok}/{len(targets)} member ada data post → {path}")
-    return path
+    save_store(out_dir, store)
+    if mode == "backfill":
+        (out_dir / MARKER).write_text(datetime.now(WIB).isoformat())
+    print(f"\nstore: {len(store)} post total (+{new} baru, {upd} update) → {store_path(out_dir)}")
+    return store_path(out_dir)
 
 
-class _M:  # objek contoh utk --sample (tanpa login)
+class _M:
     def __init__(self, **k):
         self.__dict__.update(k)
 
 
 SAMPLE = [
-    _M(code="C1", taken_at=None, media_type=8, product_type="carousel_container", like_count=82179, comment_count=377),
-    _M(code="C2", taken_at=None, media_type=2, product_type="clips", like_count=39871, comment_count=72, play_count=755082),
-    _M(code="C3", taken_at=None, media_type=1, product_type="feed", like_count=17364, comment_count=84),
+    _M(code="C1", taken_at=datetime.now(timezone.utc), media_type=8, product_type="carousel", like_count=82179, comment_count=377),
+    _M(code="C2", taken_at=datetime.now(timezone.utc), media_type=2, product_type="clips", like_count=39871, comment_count=72, play_count=755082),
 ]
-
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--date")
+    ap.add_argument("--backfill", action="store_true", help="SEKALI: tarik semua post")
     ap.add_argument("--only")
     ap.add_argument("--out")
-    ap.add_argument("--max", type=int, default=36)
+    ap.add_argument("--max", type=int, default=0, help="batas post saat backfill (0=semua)")
+    ap.add_argument("--refetch-days", type=int, default=None)
     ap.add_argument("--pause", type=float, default=3.0)
     ap.add_argument("--sample", action="store_true")
     a = ap.parse_args()
     if a.sample:
-        parsed = [parse_media(m) for m in SAMPLE]
-        for p in parsed:
-            print(" ", p)
-        print("\nsummarize (followers=1.740.761):")
-        print(" ", json.dumps(summarize("jkt48.christy", parsed, 1740761), indent=1))
+        for m in SAMPLE:
+            print(" ", parse_media(m))
     else:
-        run(date=a.date, only=a.only, out_dir=a.out, max_posts=a.max, pause=a.pause)
+        run(mode="backfill" if a.backfill else "rolling", only=a.only, out_dir=a.out,
+            backfill_max=a.max, refetch_days=a.refetch_days, pause=a.pause)

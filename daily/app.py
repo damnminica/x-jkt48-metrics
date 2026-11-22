@@ -45,7 +45,8 @@ IG_SNAP = DATA / "ig_snapshots"
 IG_DATA = DATA / "ig_data.json"
 IG_REPO_SNAP = ROOT / "instagram" / "snapshots"
 IG_PAUSE = float(os.environ.get("IG_PAUSE", "1.2"))
-IG_POST_MAX = int(os.environ.get("IG_POST_MAX", "30"))  # post/member utk engagement; 0 = SEMUA
+IG_BACKFILL_MAX = int(os.environ.get("IG_BACKFILL_MAX", "0"))   # backfill SEKALI: 0 = SEMUA post
+IG_REFETCH_DAYS = int(os.environ.get("IG_REFETCH_DAYS", "14"))  # rolling: post < N hari di-upsert
 _lock = threading.Lock()
 _ig_lock = threading.Lock()
 
@@ -159,11 +160,17 @@ def _snapshot_to_sheets(sheets):
 
 def seed_ig():
     IG_SNAP.mkdir(parents=True, exist_ok=True)
+    import shutil
     if not any(IG_SNAP.glob("ig_*.csv")) and IG_REPO_SNAP.exists():
-        import shutil
         for p in IG_REPO_SNAP.glob("ig_*.csv"):
             shutil.copy(p, IG_SNAP / p.name)
-        log.info("Seed %d snapshot IG dari repo", len(list(IG_SNAP.glob("ig_*.csv"))))
+        log.info("Seed %d snapshot follower IG dari repo", len(list(IG_SNAP.glob("ig_*.csv"))))
+    # seed store post + marker backfill (backfill berat dilakukan LOKAL; Railway cukup rolling)
+    for name in ("posts_store.csv", ".ig_backfilled"):
+        src = IG_REPO_SNAP / name
+        if src.exists() and not (IG_SNAP / name).exists():
+            shutil.copy(src, IG_SNAP / name)
+            log.info("Seed %s dari repo", name)
 
 
 def _x_follower_map():
@@ -216,12 +223,12 @@ def run_ig_posts():
         log.warning("Penarikan IG lain masih jalan; lewati post-fetch.")
         return
     try:
-        date = datetime.now(WIB).strftime("%Y-%m-%d")
-        log.info("Mulai tarik POST IG %s (max=%s, proxy=%s)", date, IG_POST_MAX,
-                 bool(os.environ.get("IG_PROXY")))
-        ig_posts.run(date=date, out_dir=IG_SNAP, max_posts=IG_POST_MAX)
+        mode = "rolling" if (IG_SNAP / ig_posts.MARKER).exists() else "backfill"
+        log.info("Mulai tarik POST IG (mode=%s, proxy=%s)", mode, bool(os.environ.get("IG_PROXY")))
+        ig_posts.run(mode=mode, out_dir=IG_SNAP, backfill_max=IG_BACKFILL_MAX,
+                     refetch_days=IG_REFETCH_DAYS)
         rebuild_ig()
-        log.info("Selesai tarik POST IG %s", date)
+        log.info("Selesai tarik POST IG (mode=%s)", mode)
     except Exception as e:  # noqa: BLE001
         log.warning("tarik POST IG gagal: %s", e)
     finally:
@@ -305,8 +312,11 @@ seed_ig()
 rebuild_ig()  # bangun ig_data.json dari snapshot (seed repo) saat boot
 # "ketika deploy harus otomatis fetch all post instagram" — jalankan saat boot bila sesi ada
 # & belum ada data post hari ini (hindari fetch berulang tiap restart). Butuh IG_SESSIONID.
-if os.environ.get("IG_SESSIONID") and not (IG_SNAP / f"posts_{datetime.now(WIB).strftime('%Y-%m-%d')}.csv").exists():
-    log.info("Boot: auto-fetch POST IG (sesi terdeteksi)")
+_ig_store = IG_SNAP / "posts_store.csv"
+_ig_fresh = (_ig_store.exists() and datetime.fromtimestamp(_ig_store.stat().st_mtime, WIB)
+             .strftime("%Y-%m-%d") == datetime.now(WIB).strftime("%Y-%m-%d"))
+if os.environ.get("IG_SESSIONID") and not _ig_fresh:
+    log.info("Boot: auto-fetch POST IG (backfill bila belum ada marker, else rolling)")
     threading.Thread(target=run_ig_posts, daemon=True).start()
 start_scheduler()
 
